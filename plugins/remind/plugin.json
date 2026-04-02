@@ -1,0 +1,10 @@
+{
+  "name": "remind",
+  "description": "Set reminders with natural language time parsing",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/remind", "/reminders"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

@@ -1,0 +1,11 @@
+{
+  "name": "calendar_briefing",
+  "description": "Calendar briefing with tomorrow and week-ahead views",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/briefing", "/tomorrow", "/weekahead"],
+  "config": [],
+  "requires": ["calendar"],
+  "free": true,
+  "bundled": true
+}

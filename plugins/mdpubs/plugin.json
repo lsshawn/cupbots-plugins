@@ -1,0 +1,19 @@
+{
+  "name": "mdpubs",
+  "description": "Publish and manage markdown notes on mdpubs.com",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/publish", "/published"],
+  "config": [
+    {
+      "key": "MDPUBS_API_KEY",
+      "label": "MdPubs API Key",
+      "type": "secret",
+      "required": true,
+      "help": "Get your API key at https://mdpubs.com/settings"
+    }
+  ],
+  "migrations": ["1712000001_mdpubs_notes.js"],
+  "free": true,
+  "bundled": true
+}

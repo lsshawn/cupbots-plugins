@@ -1,0 +1,19 @@
+{
+  "name": "whatsapp_schedule",
+  "description": "Schedule WhatsApp messages with AI-parsed natural language",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/wa schedule", "/wa scheduled", "/wa unschedule"],
+  "config": [
+    {
+      "key": "BOT_TIMEZONE",
+      "label": "Timezone for scheduling",
+      "type": "text",
+      "required": false,
+      "help": "Default: Asia/Kuala_Lumpur. IANA timezone string."
+    }
+  ],
+  "requires": ["whatsapp"],
+  "free": true,
+  "bundled": true
+}

@@ -1,0 +1,10 @@
+{
+  "name": "ideas",
+  "description": "Capture and review ideas organized by year",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/idea", "/ideas"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

@@ -1,0 +1,10 @@
+{
+  "name": "contacts",
+  "description": "Personal CRM — track contacts, tiers, interactions, and follow-ups",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/crm", "/whois", "/remember", "/addcontact", "/contacts"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

@@ -1,0 +1,10 @@
+{
+  "name": "note",
+  "description": "Create and list zk-format markdown notes",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/note", "/notes"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

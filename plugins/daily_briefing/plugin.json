@@ -1,0 +1,10 @@
+{
+  "name": "daily_briefing",
+  "description": "Automated morning briefing with today's agenda",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/daily"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

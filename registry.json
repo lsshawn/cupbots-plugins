@@ -1,0 +1,319 @@
+{
+  "version": 1,
+  "api": "https://api.cupbots.dev",
+  "plugins": {
+    "bookmarks": {
+      "name": "bookmarks",
+      "description": "Save, search, and manage bookmarked links",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/bookmark",
+        "/bookmarks",
+        "/unbookmark"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/bookmarks.py"
+      ]
+    },
+    "calendar": {
+      "name": "calendar",
+      "description": "Calendar management via CalDAV",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/today",
+        "/day",
+        "/week",
+        "/next",
+        "/agenda",
+        "/free",
+        "/event",
+        "/delete",
+        "/holidays",
+        "/cal"
+      ],
+      "config": [
+        {
+          "key": "CALDAV_URL",
+          "label": "CalDAV Server URL",
+          "type": "text",
+          "required": true,
+          "help": "e.g. https://radicale.example.com/user/calendar/"
+        },
+        {
+          "key": "CALDAV_USERNAME",
+          "label": "CalDAV Username",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "CALDAV_PASSWORD",
+          "label": "CalDAV Password",
+          "type": "secret",
+          "required": true
+        }
+      ],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/calendar_plugin.py"
+      ]
+    },
+    "calendar_briefing": {
+      "name": "calendar_briefing",
+      "description": "Calendar briefing with tomorrow and week-ahead views",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/briefing",
+        "/tomorrow",
+        "/weekahead"
+      ],
+      "config": [],
+      "requires": [
+        "calendar"
+      ],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/calendar_briefing.py"
+      ]
+    },
+    "contacts": {
+      "name": "contacts",
+      "description": "Personal CRM \u2014 track contacts, tiers, interactions, and follow-ups",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/crm",
+        "/whois",
+        "/remember",
+        "/addcontact",
+        "/contacts"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/contacts.py"
+      ]
+    },
+    "daily_briefing": {
+      "name": "daily_briefing",
+      "description": "Automated morning briefing with today's agenda",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/daily"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/daily_briefing.py"
+      ]
+    },
+    "ideas": {
+      "name": "ideas",
+      "description": "Capture and review ideas organized by year",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/idea",
+        "/ideas"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/ideas.py"
+      ]
+    },
+    "image_gen": {
+      "name": "image_gen",
+      "description": "Generate images using Gemini",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/img"
+      ],
+      "config": [
+        {
+          "key": "GEMINI_API_KEY",
+          "label": "Google Gemini API Key",
+          "type": "secret",
+          "required": true,
+          "help": "Get your API key at https://aistudio.google.com/apikey"
+        }
+      ],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/image_gen.py"
+      ]
+    },
+    "mdpubs": {
+      "name": "mdpubs",
+      "description": "Publish and manage markdown notes on mdpubs.com",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/publish",
+        "/published"
+      ],
+      "config": [
+        {
+          "key": "MDPUBS_API_KEY",
+          "label": "MdPubs API Key",
+          "type": "secret",
+          "required": true,
+          "help": "Get your API key at https://mdpubs.com/settings"
+        }
+      ],
+      "migrations": [
+        "1712000001_mdpubs_notes.js"
+      ],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "pb_migrations/1712000001_mdpubs_notes.js",
+        "plugins/mdpubs_plugin.py"
+      ]
+    },
+    "note": {
+      "name": "note",
+      "description": "Create and list zk-format markdown notes",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/note",
+        "/notes"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/note.py"
+      ]
+    },
+    "remind": {
+      "name": "remind",
+      "description": "Set reminders with natural language time parsing",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/remind",
+        "/reminders"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/remind.py"
+      ]
+    },
+    "search": {
+      "name": "search",
+      "description": "Multi-platform research across Reddit, YouTube, and X",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/search",
+        "/searchreddit",
+        "/searchyt",
+        "/searchx"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/search.py"
+      ]
+    },
+    "upload": {
+      "name": "upload",
+      "description": "Auto-save files sent to the group",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/uploads"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/upload.py"
+      ]
+    },
+    "whatsapp": {
+      "name": "whatsapp",
+      "description": "Control WhatsApp from Telegram \u2014 read, reply, search, summarize",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/wa"
+      ],
+      "config": [
+        {
+          "key": "WA_API_URL",
+          "label": "WhatsApp Bot API URL",
+          "type": "text",
+          "required": false,
+          "help": "Default: http://127.0.0.1:3100"
+        }
+      ],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/whatsapp.py"
+      ]
+    },
+    "whatsapp_schedule": {
+      "name": "whatsapp_schedule",
+      "description": "Schedule WhatsApp messages with AI-parsed natural language",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/wa schedule",
+        "/wa scheduled",
+        "/wa unschedule"
+      ],
+      "config": [
+        {
+          "key": "BOT_TIMEZONE",
+          "label": "Timezone for scheduling",
+          "type": "text",
+          "required": false,
+          "help": "Default: Asia/Kuala_Lumpur. IANA timezone string."
+        }
+      ],
+      "requires": [
+        "whatsapp"
+      ],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/whatsapp_schedule.py"
+      ]
+    },
+    "youtube": {
+      "name": "youtube",
+      "description": "Analyze YouTube videos \u2014 transcript extraction + AI summary",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/yt"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/youtube.py"
+      ]
+    }
+  }
+}

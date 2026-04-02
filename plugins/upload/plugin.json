@@ -1,0 +1,10 @@
+{
+  "name": "upload",
+  "description": "Auto-save files sent to the group",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/uploads"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

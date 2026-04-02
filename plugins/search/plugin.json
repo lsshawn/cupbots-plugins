@@ -1,0 +1,10 @@
+{
+  "name": "search",
+  "description": "Multi-platform research across Reddit, YouTube, and X",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/search", "/searchreddit", "/searchyt", "/searchx"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

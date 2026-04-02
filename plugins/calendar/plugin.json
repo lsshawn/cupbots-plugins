@@ -1,0 +1,30 @@
+{
+  "name": "calendar",
+  "description": "Calendar management via CalDAV",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/today", "/day", "/week", "/next", "/agenda", "/free", "/event", "/delete", "/holidays", "/cal"],
+  "config": [
+    {
+      "key": "CALDAV_URL",
+      "label": "CalDAV Server URL",
+      "type": "text",
+      "required": true,
+      "help": "e.g. https://radicale.example.com/user/calendar/"
+    },
+    {
+      "key": "CALDAV_USERNAME",
+      "label": "CalDAV Username",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "CALDAV_PASSWORD",
+      "label": "CalDAV Password",
+      "type": "secret",
+      "required": true
+    }
+  ],
+  "free": true,
+  "bundled": true
+}

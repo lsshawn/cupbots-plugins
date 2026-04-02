@@ -1,0 +1,10 @@
+{
+  "name": "youtube",
+  "description": "Analyze YouTube videos — transcript extraction + AI summary",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/yt"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

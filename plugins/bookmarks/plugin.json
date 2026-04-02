@@ -1,0 +1,10 @@
+{
+  "name": "bookmarks",
+  "description": "Save, search, and manage bookmarked links",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/bookmark", "/bookmarks", "/unbookmark"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}

@@ -1,0 +1,18 @@
+{
+  "name": "whatsapp",
+  "description": "Control WhatsApp from Telegram — read, reply, search, summarize",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/wa"],
+  "config": [
+    {
+      "key": "WA_API_URL",
+      "label": "WhatsApp Bot API URL",
+      "type": "text",
+      "required": false,
+      "help": "Default: http://127.0.0.1:3100"
+    }
+  ],
+  "free": true,
+  "bundled": true
+}
