@@ -1,0 +1,10 @@
+{
+  "name": "onboarding",
+  "description": "Welcome new members with guided setup wizard, custom messages, rules, and DM welcomes",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/onboard"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}
