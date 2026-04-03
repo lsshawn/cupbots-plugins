@@ -25,7 +25,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from telegram.constants import ChatAction
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-BABY_DIR = Path(__file__).resolve().parent.parent.parent / "baby-tracker"
+from cupbots.config import get_config as _get_cfg
+BABY_DIR = Path(_get_cfg().get("allowed_paths", {}).get("notes", "/home/ss/projects/note")) / "baby-tracker"
 
 sys.path.insert(0, str(BABY_DIR))
 import db

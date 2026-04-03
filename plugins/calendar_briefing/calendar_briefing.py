@@ -16,11 +16,9 @@ from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from config_loader import get_config
-from helpers.caldav_client import CalDAVClient
-from helpers.logger import get_logger
+from cupbots.config import get_config
+from cupbots.helpers.caldav_client import CalDAVClient
+from cupbots.helpers.logger import get_logger
 
 log = get_logger("briefing")
 

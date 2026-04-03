@@ -21,7 +21,8 @@ from cupbots.config import get_thread_id
 log = get_logger("finance")
 
 # Paths
-FINANCES_DIR = Path(__file__).resolve().parent.parent.parent.parent / "finances"
+from cupbots.config import get_config as _get_cfg
+FINANCES_DIR = Path(_get_cfg().get("allowed_paths", {}).get("finances", "/home/ss/projects/note/finances"))
 SCRIPTS_DIR = FINANCES_DIR / "scripts"
 OPERATING_CURRENCY = "EUR"
 

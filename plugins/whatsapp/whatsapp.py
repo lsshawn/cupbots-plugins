@@ -15,6 +15,9 @@ Commands (works in any topic):
   /wa sync         — Thorough sync of all chat history
   /wa pair         — Scan new QR code
   /wa reconnect    — Reconnect without re-pairing
+
+WhatsApp-side commands (type these in WhatsApp):
+  /wajid           — Show this chat's JID and your sender ID
 """
 
 import asyncio
@@ -428,32 +431,33 @@ async def _wa_smart_search(update: Update, query: str):
 
     thinking_msg = await update.message.reply_text("🔍 searching whatsapp...")
 
-    wa_db = str(project_root) + "/scripts/whatsapp-bot/data/whatsapp.db"
-    pb_url = "http://127.0.0.1:8091"
+    wa_db = str(project_root) + "/whatsapp-bot/data/whatsapp.db"
+    contacts_db = str(project_root) + "/data/plugins/contacts/data.db"
 
     system_prompt = (
         "You are a WhatsApp search assistant. Answer the user's question about their WhatsApp messages. "
         "Be concise — just give the answer, no preamble.\n\n"
         "WhatsApp DB: " + wa_db + "\n"
-        "Contacts CRM: PocketBase at " + pb_url + "\n\n"
+        "Contacts CRM DB: " + contacts_db + "\n\n"
         "SCHEMA:\n"
         "  WhatsApp DB (sqlite3):\n"
         "    messages: id, chat_id, chat_name, sender_id, sender_name, content, media_type, timestamp (unix), is_from_me, quoted_id\n"
         "    chats: id, name, is_group, last_message_ts, unread_count, muted\n"
-        "  Contacts CRM (PocketBase REST API):\n"
-        "    contacts collection: id, name, handles, tags, notes, tier, location, last_contact, next_contact\n\n"
+        "  Contacts CRM DB (sqlite3):\n"
+        "    contacts: id, name, handles, tags, notes, tier, location, last_contact, next_contact\n"
+        "    interactions: id, contact_id, channel, summary, created_at\n\n"
         "CRITICAL FACTS about this database:\n"
         "- sender_name is OFTEN a phone number (e.g. '+120363425055654179'), NOT a human name\n"
         "- chat_name in the messages table is OFTEN a phone number or group JID, NOT a human name\n"
         "- The chats table has the REAL group/chat name: SELECT name FROM chats WHERE id = '<chat_id>'\n"
-        "- The contacts CRM has the REAL person name (use PocketBase API)\n"
+        "- The contacts CRM DB has the REAL person name (query it via sqlite3)\n"
         "- chat_id can be a phone JID (@s.whatsapp.net), group JID (@g.us), or Linked ID (@lid)\n"
         "- You CANNOT rely on sender_name to find who sent a message by name\n\n"
         "SEARCH STRATEGY (follow this EXACT order):\n"
         "1. ALWAYS start with a broad content search for keywords from the user's question:\n"
         "   sqlite3 " + wa_db + " \"SELECT content, sender_name, chat_id, datetime(timestamp,'unixepoch','localtime') as dt FROM messages WHERE content LIKE '%keyword%' COLLATE NOCASE ORDER BY timestamp DESC LIMIT 20\"\n"
         "2. If the user mentions a person's name, ALSO look up their phone in the CRM:\n"
-        "   curl '" + pb_url + "/api/collections/contacts/records?filter=name~\"name\"&perPage=5'\n"
+        "   sqlite3 " + contacts_db + " \"SELECT name, handles, tags FROM contacts WHERE name LIKE '%name%' COLLATE NOCASE LIMIT 5\"\n"
         "3. If CRM returns a phone (in handles field), search messages by that phone in sender_name or chat_id:\n"
         "   sqlite3 " + wa_db + " \"SELECT content, sender_name, chat_id, datetime(timestamp,'unixepoch','localtime') as dt FROM messages WHERE (sender_name LIKE '%phone%' OR chat_id LIKE '%phone%') ORDER BY timestamp DESC LIMIT 20\"\n"
         "4. ALSO try searching by name directly (sometimes sender_name IS a real name):\n"
@@ -461,8 +465,8 @@ async def _wa_smart_search(update: Update, query: str):
         "5. Cross-reference: if step 1 found messages and step 2-4 found a phone/name, check if any messages from step 1 have matching sender_name or chat_id.\n\n"
         "RESOLVING NAMES (do this BEFORE responding to the user):\n"
         "- For chat names: sqlite3 " + wa_db + " \"SELECT name FROM chats WHERE id = '<chat_id>'\"\n"
-        "- For sender names that are phone numbers: curl '" + pb_url + "/api/collections/contacts/records?filter=handles~\"<phone_digits>\"&perPage=1'\n"
-        "  Strip the + and leading digits as needed — e.g. for '+275088377151634', try handles~'275088377151634'\n"
+        "- For sender names that are phone numbers: sqlite3 " + contacts_db + " \"SELECT name FROM contacts WHERE handles LIKE '%<phone_digits>%' LIMIT 1\"\n"
+        "  Strip the + and leading digits as needed — e.g. for '+275088377151634', try handles LIKE '%275088377151634%'\n"
         "- NEVER show raw JIDs or phone-number sender_names to the user. Always resolve to human names first.\n\n"
         "NEVER say 'no results' until you have tried ALL steps above. The content search (step 1) is the most reliable.\n\n"
         "is_from_me=1 means the USER (bot owner) sent it. is_from_me=0 means the OTHER person sent it.\n\n"
@@ -508,6 +512,22 @@ async def _wa_smart_search(update: Update, query: str):
     except Exception as e:
         log.error("WhatsApp smart search error: %s", e)
         await thinking_msg.edit_text(f"Error: {type(e).__name__}. See logs.")
+
+
+async def handle_command(msg, reply) -> bool:
+    """Handle commands from WhatsApp side."""
+    if msg.command == "wajid":
+        lines = [
+            f"Chat JID: {msg.chat_id}",
+            f"Your ID: {msg.sender_id}",
+        ]
+        if msg.parent_group:
+            lines.append(f"Community: {msg.parent_group}")
+        if msg.is_group:
+            lines.insert(0, "Group info:")
+        await reply.reply_text("\n".join(lines))
+        return True
+    return False
 
 
 async def _wa_search(update: Update, query: str):

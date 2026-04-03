@@ -189,8 +189,7 @@ def _gather_reminders() -> str:
 def _gather_receivables() -> str:
     """Outstanding receivables from both beancount ledgers."""
     try:
-        sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "telegram-bot" / "plugins"))
-        from _finance_helpers import run_bql_raw
+        from plugins._finance_helpers import run_bql_raw
 
         lines = ["OUTSTANDING RECEIVABLES:"]
         for ledger in ("cupbots", "personal"):

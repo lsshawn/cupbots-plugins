@@ -39,9 +39,10 @@ from plugins._finance_helpers import (
 
 log = get_logger("finance.fire")
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-VENV_PY = str(PROJECT_ROOT / "venv" / "bin" / "python3")
-PORTFOLIO_SYNC = str(PROJECT_ROOT / "finances" / "scripts" / "portfolio_sync.py")
+from cupbots.config import get_config as _get_cfg
+_note_root = Path(_get_cfg().get("allowed_paths", {}).get("notes", "/home/ss/projects/note"))
+VENV_PY = str(_note_root / "venv" / "bin" / "python3")
+PORTFOLIO_SYNC = str(_note_root / "finances" / "scripts" / "portfolio_sync.py")
 
 
 

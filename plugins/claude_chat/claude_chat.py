@@ -20,8 +20,6 @@ import tempfile
 import time as _time
 from pathlib import Path
 
-CONTEXT_DIR = Path(__file__).resolve().parent.parent / "data" / "analysis-context"
-
 from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -32,8 +30,8 @@ from cupbots.helpers.llm import run_claude_cli, add_history, get_history_context
 
 log = get_logger("claude")
 
+CONTEXT_DIR = get_data_dir() / "analysis-context"
 PLUGINS_DIR = Path(__file__).resolve().parent
-_venv_py = str(PLUGINS_DIR.parent.parent.parent / "venv" / "bin" / "python3")
 
 
 def _build_command_list() -> str:

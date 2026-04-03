@@ -15,12 +15,12 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import Application, ApplicationHandlerStop, CommandHandler, ContextTypes, MessageHandler, filters
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from helpers.logger import get_logger
+from cupbots.helpers.logger import get_logger
 
 log = get_logger("upload")
 
-NOTE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+from cupbots.config import get_config as _get_config
+NOTE_ROOT = Path(_get_config().get("allowed_paths", {}).get("notes", "/home/ss/projects/note"))
 DEFAULT_FOLDER = "uploads"
 
 
