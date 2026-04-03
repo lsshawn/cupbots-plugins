@@ -9,7 +9,6 @@ Commands (works in any topic):
   /contacts [tag|tier]    — Search/filter contacts
 """
 
-import asyncio
 import re
 from datetime import datetime, timedelta
 
@@ -21,9 +20,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from cupbots.helpers.pb import (
-    pb_find_one, pb_find_many, pb_create, pb_update, pb_escape,
-)
+from cupbots.helpers.db import get_plugin_db
 from cupbots.helpers.logger import get_logger
 
 log = get_logger("contacts")
@@ -38,6 +35,42 @@ TIERS = {
 
 TIER_EMOJI = {"A": "\U0001f525", "B": "\u2b50", "C": "\U0001f465", "D": "\U0001f4c1"}
 
+PLUGIN_NAME = "contacts"
+
+
+def create_tables(conn):
+    """Create contacts and interactions tables. Called by get_plugin_db on first access."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            tier TEXT NOT NULL DEFAULT 'C' CHECK (tier IN ('A','B','C','D')),
+            location TEXT NOT NULL DEFAULT '',
+            handles TEXT NOT NULL DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            last_contact TEXT NOT NULL DEFAULT '',
+            next_contact TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts (name);
+        CREATE INDEX IF NOT EXISTS idx_contacts_tier ON contacts (tier);
+
+        CREATE TABLE IF NOT EXISTS interactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            channel TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+
+
+def _db():
+    """Get the contacts plugin database connection."""
+    return get_plugin_db(PLUGIN_NAME)
+
 
 def _compute_next_contact(tier: str, last_contact: str | None) -> str | None:
     """Compute next contact date based on tier interval."""
@@ -49,13 +82,14 @@ def _compute_next_contact(tier: str, last_contact: str | None) -> str | None:
 
 
 async def _find_contacts(query: str) -> list[dict]:
-    """Find contacts by name, tags, handles, or location (PB filter)."""
-    like = pb_escape(query)
-    # PocketBase uses ~ for LIKE/contains
-    f = (
-        f"name~'{like}' || tags~'{like}' || handles~'{like}' || location~'{like}'"
-    )
-    return await pb_find_many("contacts", filter_str=f, per_page=100)
+    """Find contacts by name, tags, handles, or location."""
+    conn = _db()
+    pattern = f"%{query}%"
+    rows = conn.execute(
+        "SELECT * FROM contacts WHERE name LIKE ? OR tags LIKE ? OR handles LIKE ? OR location LIKE ?",
+        (pattern, pattern, pattern, pattern),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def _format_contact(c: dict, verbose: bool = False) -> str:
@@ -97,7 +131,7 @@ def _format_interactions(interactions: list[dict], limit: int = 5) -> str:
     lines = []
     for i in interactions[:limit]:
         channel = f"[{i['channel']}] " if i.get("channel") else ""
-        created = i.get("created", "")[:10]
+        created = (i.get("created_at") or "")[:10]
         lines.append(f"  {created} {channel}{i.get('summary', '')}")
     return "\n".join(lines)
 
@@ -110,15 +144,15 @@ async def cmd_crm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
+    conn = _db()
     today = datetime.now().strftime("%Y-%m-%d")
-    overdue = await pb_find_many(
-        "contacts",
-        filter_str=f"next_contact!='' && next_contact<='{today}'",
-    )
-    never = await pb_find_many(
-        "contacts",
-        filter_str="last_contact=''",
-    )
+    overdue = conn.execute(
+        "SELECT * FROM contacts WHERE next_contact != '' AND next_contact <= ?",
+        (today,),
+    ).fetchall()
+    never = conn.execute(
+        "SELECT * FROM contacts WHERE last_contact = ''"
+    ).fetchall()
 
     if not overdue and not never:
         await update.message.reply_text("All caught up! No contacts due for a check-in.")
@@ -129,15 +163,15 @@ async def cmd_crm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"Overdue ({len(overdue)}):\n")
         for c in overdue:
             days_late = (datetime.now() - datetime.fromisoformat(c["next_contact"])).days
-            emoji = TIER_EMOJI.get(c.get("tier", "C"), "")
-            lines.append(f"  {emoji} {c['name']} [{c.get('tier', 'C')}] — {days_late}d overdue")
+            emoji = TIER_EMOJI.get(c["tier"], "")
+            lines.append(f"  {emoji} {c['name']} [{c['tier']}] — {days_late}d overdue")
         lines.append("")
 
     if never:
         lines.append(f"Never contacted ({len(never)}):\n")
-        for c in never[:10]:
-            emoji = TIER_EMOJI.get(c.get("tier", "C"), "")
-            lines.append(f"  {emoji} {c['name']} [{c.get('tier', 'C')}]")
+        for c in list(never)[:10]:
+            emoji = TIER_EMOJI.get(c["tier"], "")
+            lines.append(f"  {emoji} {c['name']} [{c['tier']}]")
         if len(never) > 10:
             lines.append(f"  ... and {len(never) - 10} more")
 
@@ -157,17 +191,17 @@ async def cmd_whois(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"No contacts matching '{query}'.")
         return
 
+    conn = _db()
     lines = []
     for c in results[:5]:
         lines.append(_format_contact(c, verbose=True))
-        interactions = await pb_find_many(
-            "interactions",
-            filter_str=f"contact_id='{pb_escape(c['id'])}'",
-            per_page=5,
-        )
+        interactions = conn.execute(
+            "SELECT * FROM interactions WHERE contact_id = ? ORDER BY id DESC LIMIT 5",
+            (c["id"],),
+        ).fetchall()
         if interactions:
             lines.append("  Recent:")
-            lines.append(_format_interactions(interactions))
+            lines.append(_format_interactions([dict(i) for i in interactions]))
         lines.append("")
 
     text = "\n".join(lines)
@@ -201,32 +235,33 @@ async def cmd_remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     name = name.strip()
     note = note.strip()
-    safe_name = pb_escape(name)
 
-    existing = await pb_find_many("contacts", filter_str=f"name~'{safe_name}'")
+    conn = _db()
+    existing = conn.execute(
+        "SELECT * FROM contacts WHERE name LIKE ?", (f"%{name}%",)
+    ).fetchall()
 
     if len(existing) == 1:
-        c = existing[0]
+        c = dict(existing[0])
         old_notes = c.get("notes") or ""
         today = datetime.now().strftime("%Y-%m-%d")
         new_notes = f"{old_notes}\n[{today}] {note}".strip()
-        await pb_update("contacts", c["id"], {"notes": new_notes})
+        conn.execute(
+            "UPDATE contacts SET notes = ?, updated_at = datetime('now') WHERE id = ?",
+            (new_notes, c["id"]),
+        )
+        conn.commit()
         await update.message.reply_text(f"Updated {c['name']}:\n  {note}")
     elif len(existing) > 1:
-        names = ", ".join(c["name"] for c in existing[:5])
+        names = ", ".join(dict(c)["name"] for c in existing[:5])
         await update.message.reply_text(f"Multiple matches: {names}\nBe more specific.")
     else:
         today = datetime.now().strftime("%Y-%m-%d")
-        await pb_create("contacts", {
-            "name": name,
-            "notes": f"[{today}] {note}",
-            "tier": "C",
-            "location": "",
-            "handles": "",
-            "tags": "",
-            "last_contact": "",
-            "next_contact": "",
-        })
+        conn.execute(
+            "INSERT INTO contacts (name, notes, tier) VALUES (?, ?, 'C')",
+            (name, f"[{today}] {note}"),
+        )
+        conn.commit()
         await update.message.reply_text(
             f"Created new contact: {name} [C]\n  {note}\n\nUse /editcontact to set tier, tags, location."
         )
@@ -269,22 +304,19 @@ async def cmd_addcontact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Please provide a name.")
         return
 
-    safe_name = pb_escape(name)
-    existing = await pb_find_one("contacts", f"name='{safe_name}'")
+    conn = _db()
+    existing = conn.execute(
+        "SELECT id FROM contacts WHERE name = ?", (name,)
+    ).fetchone()
     if existing:
         await update.message.reply_text(f"Contact '{name}' already exists. Use /whois {name}")
         return
 
-    await pb_create("contacts", {
-        "name": name,
-        "tier": tier,
-        "location": location,
-        "tags": tags,
-        "handles": handles,
-        "notes": "",
-        "last_contact": "",
-        "next_contact": "",
-    })
+    conn.execute(
+        "INSERT INTO contacts (name, tier, location, tags, handles) VALUES (?, ?, ?, ?, ?)",
+        (name, tier, location, tags, handles),
+    )
+    conn.commit()
 
     emoji = TIER_EMOJI.get(tier, "")
     tier_label = TIERS[tier][0]
@@ -340,12 +372,24 @@ async def cmd_editcontact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     contact = results[0]
-    await pb_update("contacts", contact["id"], updates)
+    conn = _db()
+
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [contact["id"]]
+    conn.execute(
+        f"UPDATE contacts SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
+        values,
+    )
+    conn.commit()
 
     if "tier" in updates and contact.get("last_contact"):
         next_dt = _compute_next_contact(updates["tier"], contact["last_contact"])
         if next_dt:
-            await pb_update("contacts", contact["id"], {"next_contact": next_dt})
+            conn.execute(
+                "UPDATE contacts SET next_contact = ?, updated_at = datetime('now') WHERE id = ?",
+                (next_dt, contact["id"]),
+            )
+            conn.commit()
 
     changes = ", ".join(f"{k}={v}" for k, v in updates.items())
     await update.message.reply_text(f"Updated {contact['name']}: {changes}")
@@ -356,28 +400,29 @@ async def cmd_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
+    conn = _db()
     args = context.args or []
 
     if not args:
         lines = ["Contacts:\n"]
         for tier, (label, interval) in TIERS.items():
-            contacts = await pb_find_many("contacts", filter_str=f"tier='{pb_escape(tier)}'")
-            count = len(contacts)
+            count = conn.execute(
+                "SELECT COUNT(*) as cnt FROM contacts WHERE tier = ?", (tier,)
+            ).fetchone()["cnt"]
             emoji = TIER_EMOJI[tier]
             lines.append(f"  {emoji} [{tier}] {label}: {count} (every {interval}d)")
-        all_contacts = await pb_find_many("contacts", per_page=1)
-        # PB returns totalItems in the response; approximate with a large fetch
-        total_contacts = await pb_find_many("contacts", per_page=200)
-        lines.append(f"\n  Total: {len(total_contacts)}")
+        total = conn.execute("SELECT COUNT(*) as cnt FROM contacts").fetchone()["cnt"]
+        lines.append(f"\n  Total: {total}")
         lines.append("\nUse /contacts <query> to search")
         await update.message.reply_text("\n".join(lines))
         return
 
     query = " ".join(args)
     if query.upper() in TIERS:
-        results = await pb_find_many(
-            "contacts", filter_str=f"tier='{pb_escape(query.upper())}'", per_page=100
-        )
+        rows = conn.execute(
+            "SELECT * FROM contacts WHERE tier = ?", (query.upper(),)
+        ).fetchall()
+        results = [dict(r) for r in rows]
     else:
         results = await _find_contacts(query)
 
@@ -423,18 +468,19 @@ async def cmd_touched(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     contact = results[0]
+    conn = _db()
     today = datetime.now().strftime("%Y-%m-%d")
     next_dt = _compute_next_contact(contact.get("tier", "C"), today)
-    await pb_update("contacts", contact["id"], {
-        "last_contact": today,
-        "next_contact": next_dt or "",
-    })
+    conn.execute(
+        "UPDATE contacts SET last_contact = ?, next_contact = ?, updated_at = datetime('now') WHERE id = ?",
+        (today, next_dt or "", contact["id"]),
+    )
     if note:
-        await pb_create("interactions", {
-            "contact_id": contact["id"],
-            "channel": "manual",
-            "summary": note,
-        })
+        conn.execute(
+            "INSERT INTO interactions (contact_id, channel, summary) VALUES (?, 'manual', ?)",
+            (contact["id"], note),
+        )
+    conn.commit()
 
     emoji = TIER_EMOJI.get(contact.get("tier", "C"), "")
     msg = f"Logged contact with {emoji} {contact['name']}"
@@ -481,7 +527,9 @@ async def _sync_whatsapp_interactions():
         log.debug("WhatsApp API not reachable, skipping sync")
         return
 
-    contacts = await pb_find_many("contacts", per_page=200)
+    conn = _db()
+    contacts = conn.execute("SELECT * FROM contacts").fetchall()
+    contacts = [dict(r) for r in contacts]
     if not contacts:
         return
 
@@ -535,18 +583,18 @@ async def _sync_whatsapp_interactions():
             continue
 
         next_dt = _compute_next_contact(contact.get("tier", "C"), recent_date)
-        await pb_update("contacts", contact["id"], {
-            "last_contact": recent_date,
-            "next_contact": next_dt or "",
-        })
-        await pb_create("interactions", {
-            "contact_id": contact["id"],
-            "channel": "whatsapp",
-            "summary": f"Message from {recent_sender}",
-        })
+        conn.execute(
+            "UPDATE contacts SET last_contact = ?, next_contact = ?, updated_at = datetime('now') WHERE id = ?",
+            (recent_date, next_dt or "", contact["id"]),
+        )
+        conn.execute(
+            "INSERT INTO interactions (contact_id, channel, summary) VALUES (?, 'whatsapp', ?)",
+            (contact["id"], f"Message from {recent_sender}"),
+        )
         updated += 1
 
     if updated:
+        conn.commit()
         log.info("WhatsApp sync: updated %d contact(s)", updated)
 
 
@@ -560,12 +608,14 @@ async def _periodic_wa_sync(context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_command(msg, reply) -> bool:
     """Platform-agnostic command handler for CRM."""
+    conn = _db()
+
     if msg.command == "crm":
         today = datetime.now().strftime("%Y-%m-%d")
-        overdue = await pb_find_many(
-            "contacts",
-            filter_str=f"next_contact!='' && next_contact<='{today}'",
-        )
+        overdue = conn.execute(
+            "SELECT * FROM contacts WHERE next_contact != '' AND next_contact <= ?",
+            (today,),
+        ).fetchall()
         if not overdue:
             await reply.reply_text("All caught up! No contacts due for a check-in.")
             return True
@@ -573,7 +623,7 @@ async def handle_command(msg, reply) -> bool:
         lines = [f"Overdue ({len(overdue)}):\n"]
         for c in overdue:
             days_late = (datetime.now() - datetime.fromisoformat(c["next_contact"])).days
-            lines.append(f"  {c['name']} [{c.get('tier', 'C')}] -- {days_late}d overdue")
+            lines.append(f"  {c['name']} [{c['tier']}] -- {days_late}d overdue")
         await reply.reply_text("\n".join(lines))
         return True
 
@@ -590,14 +640,13 @@ async def handle_command(msg, reply) -> bool:
         lines = []
         for c in results[:5]:
             lines.append(_format_contact(c, verbose=True))
-            interactions = await pb_find_many(
-                "interactions",
-                filter_str=f"contact_id='{pb_escape(c['id'])}'",
-                per_page=5,
-            )
+            interactions = conn.execute(
+                "SELECT * FROM interactions WHERE contact_id = ? ORDER BY id DESC LIMIT 5",
+                (c["id"],),
+            ).fetchall()
             if interactions:
                 lines.append("  Recent:")
-                lines.append(_format_interactions(interactions))
+                lines.append(_format_interactions([dict(i) for i in interactions]))
             lines.append("")
         text = "\n".join(lines)
         if len(text) > 4000:
@@ -624,31 +673,32 @@ async def handle_command(msg, reply) -> bool:
 
         name = name.strip()
         note = note.strip()
-        safe_name = pb_escape(name)
 
-        existing = await pb_find_many("contacts", filter_str=f"name~'{safe_name}'")
+        existing = conn.execute(
+            "SELECT * FROM contacts WHERE name LIKE ?", (f"%{name}%",)
+        ).fetchall()
 
         if len(existing) == 1:
-            c = existing[0]
+            c = dict(existing[0])
             old_notes = c.get("notes") or ""
             today = datetime.now().strftime("%Y-%m-%d")
             new_notes = f"{old_notes}\n[{today}] {note}".strip()
-            await pb_update("contacts", c["id"], {"notes": new_notes})
+            conn.execute(
+                "UPDATE contacts SET notes = ?, updated_at = datetime('now') WHERE id = ?",
+                (new_notes, c["id"]),
+            )
+            conn.commit()
             await reply.reply_text(f"Updated note for {c['name']}.")
         elif len(existing) > 1:
-            names = ", ".join(c["name"] for c in existing[:5])
+            names = ", ".join(dict(c)["name"] for c in existing[:5])
             await reply.reply_text(f"Multiple matches: {names}. Be more specific.")
         else:
-            await pb_create("contacts", {
-                "name": name,
-                "notes": f"[{datetime.now().strftime('%Y-%m-%d')}] {note}",
-                "tier": "C",
-                "location": "",
-                "handles": "",
-                "tags": "",
-                "last_contact": "",
-                "next_contact": "",
-            })
+            today = datetime.now().strftime("%Y-%m-%d")
+            conn.execute(
+                "INSERT INTO contacts (name, notes, tier) VALUES (?, ?, 'C')",
+                (name, f"[{today}] {note}"),
+            )
+            conn.commit()
             await reply.reply_text(f"Created contact {name} with note.")
         return True
 
@@ -656,18 +706,21 @@ async def handle_command(msg, reply) -> bool:
         if not msg.args:
             lines = ["Contacts:\n"]
             for tier, (label, interval) in TIERS.items():
-                contacts = await pb_find_many("contacts", filter_str=f"tier='{pb_escape(tier)}'")
-                lines.append(f"  [{tier}] {label}: {len(contacts)} (every {interval}d)")
-            total = await pb_find_many("contacts", per_page=200)
-            lines.append(f"\n  Total: {len(total)}")
+                count = conn.execute(
+                    "SELECT COUNT(*) as cnt FROM contacts WHERE tier = ?", (tier,)
+                ).fetchone()["cnt"]
+                lines.append(f"  [{tier}] {label}: {count} (every {interval}d)")
+            total = conn.execute("SELECT COUNT(*) as cnt FROM contacts").fetchone()["cnt"]
+            lines.append(f"\n  Total: {total}")
             await reply.reply_text("\n".join(lines))
             return True
 
         query = " ".join(msg.args)
         if query.upper() in TIERS:
-            results = await pb_find_many(
-                "contacts", filter_str=f"tier='{pb_escape(query.upper())}'", per_page=100
-            )
+            rows = conn.execute(
+                "SELECT * FROM contacts WHERE tier = ?", (query.upper(),)
+            ).fetchall()
+            results = [dict(r) for r in rows]
         else:
             results = await _find_contacts(query)
         if not results:
@@ -706,16 +759,16 @@ async def handle_command(msg, reply) -> bool:
         contact = results[0]
         today = datetime.now().strftime("%Y-%m-%d")
         next_dt = _compute_next_contact(contact.get("tier", "C"), today)
-        await pb_update("contacts", contact["id"], {
-            "last_contact": today,
-            "next_contact": next_dt or "",
-        })
+        conn.execute(
+            "UPDATE contacts SET last_contact = ?, next_contact = ?, updated_at = datetime('now') WHERE id = ?",
+            (today, next_dt or "", contact["id"]),
+        )
         if note:
-            await pb_create("interactions", {
-                "contact_id": contact["id"],
-                "channel": "manual",
-                "summary": note,
-            })
+            conn.execute(
+                "INSERT INTO interactions (contact_id, channel, summary) VALUES (?, 'manual', ?)",
+                (contact["id"], note),
+            )
+        conn.commit()
         text = f"Logged contact with {contact['name']}"
         if next_dt:
             text += f"\n  Next check-in: {next_dt}"

@@ -8,15 +8,19 @@ Commands (works in any topic):
 """
 
 import asyncio
+import sys
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from cupbots.config import get_config
-from cupbots.helpers.caldav_client import CalDAVClient
-from cupbots.helpers.logger import get_logger
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from config_loader import get_config
+from helpers.caldav_client import CalDAVClient
+from helpers.logger import get_logger
 
 log = get_logger("briefing")
 
@@ -318,6 +322,23 @@ async def cmd_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, disable_web_page_preview=True)
     else:
         await update.message.reply_text("Could not generate preview.")
+
+
+async def handle_command(msg, reply) -> bool:
+    """Cross-platform calendar briefing commands."""
+    if msg.command == "briefing":
+        text = _build_briefing()
+        await reply.reply_text(text or "Could not generate briefing.")
+        return True
+    elif msg.command == "tomorrow":
+        text = _build_tonight_tomorrow_preview()
+        await reply.reply_text(text or "Could not generate preview.")
+        return True
+    elif msg.command == "weekahead":
+        text = _build_week_ahead()
+        await reply.reply_text(text or "Could not generate week-ahead preview.")
+        return True
+    return False
 
 
 def register(app: Application):

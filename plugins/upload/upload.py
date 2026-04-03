@@ -8,22 +8,20 @@ Send any file/photo/video to auto-save to uploads/.
 Add caption "upload [folder]" to save to a specific folder.
 """
 
+import sys
 from datetime import datetime
 from pathlib import Path
 
 from telegram import Update
 from telegram.ext import Application, ApplicationHandlerStop, CommandHandler, ContextTypes, MessageHandler, filters
 
-from cupbots.helpers.logger import get_logger
-from cupbots.paths import get_allowed_path, check_path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from helpers.logger import get_logger
 
 log = get_logger("upload")
 
+NOTE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DEFAULT_FOLDER = "uploads"
-
-
-def _get_upload_root() -> Path:
-    return get_allowed_path("uploads")
 
 
 def _extract_file(msg) -> tuple:
@@ -50,10 +48,9 @@ async def _save_file(update: Update, folder: str, show_help: bool = True) -> boo
     msg = update.message
 
     # Resolve and validate target directory
-    upload_root = _get_upload_root()
-    target_dir = (upload_root / folder).resolve()
-    if not check_path(target_dir):
-        await msg.reply_text("Invalid folder path.")
+    target_dir = (NOTE_ROOT / folder).resolve()
+    if not str(target_dir).startswith(str(NOTE_ROOT)):
+        await msg.reply_text("❌ Invalid folder path.")
         return False
 
     # Check the message itself first, then fall back to replied-to message
@@ -90,14 +87,11 @@ async def _save_file(update: Update, folder: str, show_help: bool = True) -> boo
         await msg.reply_text(f"❌ Download failed: {e}")
         return False
 
+    rel = dest.relative_to(NOTE_ROOT)
     size_kb = dest.stat().st_size / 1024
-    try:
-        rel = dest.relative_to(_get_upload_root())
-    except ValueError:
-        rel = dest.name
 
     log.info("Uploaded %s (%.1f KB)", rel, size_kb)
-    await msg.reply_text(f"Saved: `{rel}` ({size_kb:.1f} KB)", parse_mode="Markdown")
+    await msg.reply_text(f"✅ Saved: `{rel}` ({size_kb:.1f} KB)", parse_mode="Markdown")
     return True
 
 
@@ -137,7 +131,7 @@ async def cmd_uploads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    uploads_dir = _get_upload_root() / DEFAULT_FOLDER
+    uploads_dir = NOTE_ROOT / DEFAULT_FOLDER
     if not uploads_dir.exists():
         await update.message.reply_text("No uploads yet.")
         return
@@ -152,10 +146,7 @@ async def cmd_uploads(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = ["📁 *Recent uploads:*\n"]
     for f in files[:10]:
-        try:
-            rel = f.relative_to(_get_upload_root())
-        except ValueError:
-            rel = f.name
+        rel = f.relative_to(NOTE_ROOT)
         size_kb = f.stat().st_size / 1024
         mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%d %b %H:%M")
         lines.append(f"• `{rel}` ({size_kb:.1f} KB, {mtime})")
@@ -164,6 +155,31 @@ async def cmd_uploads(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"\n_{len(files)} total files_")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def handle_command(msg, reply) -> bool:
+    """Cross-platform upload commands."""
+    if msg.command == "uploads":
+        uploads_dir = NOTE_ROOT / DEFAULT_FOLDER
+        if not uploads_dir.exists():
+            await reply.reply_text("No uploads yet.")
+            return True
+        files = sorted(uploads_dir.rglob("*"), key=lambda f: f.stat().st_mtime, reverse=True)
+        files = [f for f in files if f.is_file()]
+        if not files:
+            await reply.reply_text("No uploads yet.")
+            return True
+        lines = ["Recent uploads:\n"]
+        for f in files[:10]:
+            rel = f.relative_to(NOTE_ROOT)
+            size_kb = f.stat().st_size / 1024
+            mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%d %b %H:%M")
+            lines.append(f"  {rel} ({size_kb:.1f} KB, {mtime})")
+        if len(files) > 10:
+            lines.append(f"\n{len(files)} total files")
+        await reply.reply_text("\n".join(lines))
+        return True
+    return False
 
 
 def register(app: Application):

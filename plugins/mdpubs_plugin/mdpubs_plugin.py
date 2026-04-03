@@ -12,45 +12,23 @@ Examples:
   /published
 """
 
-import json
 import os
 import re
+import sys
+from pathlib import Path
 
 import requests
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from cupbots.helpers.db import get_plugin_db
-from cupbots.helpers.logger import get_logger
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from helpers.logger import get_logger
 
 log = get_logger("mdpubs")
 
 API_BASE = "https://api.mdpubs.com"
-PLUGIN_NAME = "mdpubs"
-
-
-def create_tables(conn):
-    """Create mdpubs_notes table. Called by get_plugin_db on first access."""
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS mdpubs_notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            key TEXT NOT NULL,
-            company_id TEXT NOT NULL DEFAULT '_default',
-            note_id INTEGER,
-            title TEXT NOT NULL DEFAULT '',
-            url TEXT NOT NULL DEFAULT '',
-            tags TEXT NOT NULL DEFAULT '[]',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-            UNIQUE(key, company_id)
-        );
-    """)
-
-
-def _db():
-    """Get the mdpubs plugin database connection."""
-    return get_plugin_db(PLUGIN_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -106,22 +84,22 @@ def _api_update(note_id: int, title: str | None = None, content: str | None = No
 
 
 # ---------------------------------------------------------------------------
-# SQLite-tracked publish (tracks note IDs for update-in-place)
+# PocketBase-tracked publish (tracks note IDs for update-in-place)
 # ---------------------------------------------------------------------------
 
 async def publish_or_update(key: str, title: str, content: str,
                              company_id: str | None = None,
                              tags: list[str] | None = None) -> str:
-    """Publish a new note or update existing by key. Tracks in plugin DB."""
-    conn = _db()
+    """Publish a new note or update existing by key. Tracks in PocketBase."""
+    from helpers.pb import pb_find_one, pb_create, pb_update
+
     cid = company_id or "_default"
+    record = await pb_find_one(
+        "mdpubs_notes",
+        f"key='{key}' && company_id='{cid}'",
+    )
 
-    row = conn.execute(
-        "SELECT * FROM mdpubs_notes WHERE key = ? AND company_id = ?",
-        (key, cid),
-    ).fetchone()
-
-    note_id = row["note_id"] if row else None
+    note_id = record.get("note_id") if record else None
 
     if note_id:
         url = _api_update(note_id, title=title, content=content)
@@ -129,32 +107,32 @@ async def publish_or_update(key: str, title: str, content: str,
         url = _api_publish(title, content, tags=tags)
         note_id = int(url.rstrip("/").split("/")[-1])
 
-    if row:
-        conn.execute(
-            "UPDATE mdpubs_notes SET note_id = ?, title = ?, url = ?, tags = ?, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (note_id, title, url, json.dumps(tags or []), row["id"]),
-        )
+    data = {
+        "key": key,
+        "company_id": cid,
+        "note_id": note_id,
+        "title": title,
+        "url": url,
+        "tags": tags or [],
+    }
+
+    if record:
+        await pb_update("mdpubs_notes", record["id"], data)
     else:
-        conn.execute(
-            "INSERT INTO mdpubs_notes (key, company_id, note_id, title, url, tags) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (key, cid, note_id, title, url, json.dumps(tags or [])),
-        )
-    conn.commit()
+        await pb_create("mdpubs_notes", data)
 
     return url
 
 
 async def list_notes(company_id: str | None = None, limit: int = 20) -> list[dict]:
-    """List published notes tracked in plugin DB."""
-    conn = _db()
+    """List published notes tracked in PocketBase."""
+    from helpers.pb import pb_find_many
     cid = company_id or "_default"
-    rows = conn.execute(
-        "SELECT * FROM mdpubs_notes WHERE company_id = ? ORDER BY id DESC LIMIT ?",
-        (cid, limit),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    return await pb_find_many(
+        "mdpubs_notes",
+        filter_str=f"company_id='{cid}'",
+        per_page=limit,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +211,7 @@ async def cmd_publish(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Published: {url}")
     except Exception as e:
         log.error("Publish failed: %s", e)
-        await update.message.reply_text(f"Failed: {type(e).__name__}. See logs.")
+        await update.message.reply_text(f"Failed: {e}")
 
 
 async def cmd_notes_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -282,7 +260,7 @@ async def handle_command(msg, reply):
             await reply.reply_text(f"Published: {url}")
         except Exception as e:
             log.error("Publish failed: %s", e)
-            await reply.reply_error(f"{type(e).__name__}. See logs.")
+            await reply.reply_error(str(e))
         return True
 
     elif msg.command == "published":
