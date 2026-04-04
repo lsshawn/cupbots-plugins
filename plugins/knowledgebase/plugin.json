@@ -1,0 +1,26 @@
+{
+  "name": "knowledgebase",
+  "description": "Upload documents and search them with AI — PDF, DOCX, TXT supported. Replaces FAQ with semantic search.",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/knowledgebase", "/kb"],
+  "config": [
+    {
+      "key": "CHUNKER_API_KEY",
+      "label": "Chunker API Key",
+      "type": "secret",
+      "required": true,
+      "help": "API key for the Chunker RAG service"
+    }
+  ],
+  "free": false,
+  "price": "$29",
+  "price_type": "monthly",
+  "bundled": false,
+  "marketplace": {
+    "icon": "menu_book",
+    "tagline": "Turn your docs into an instant AI knowledge base",
+    "category": "productivity",
+    "long_description": "Upload PDFs, Word docs, and text files to build a searchable knowledge base for your group. Ask questions in plain language and get AI-powered answers with source citations. Tag documents for organized filtering. Enable auto-answer mode and the bot proactively answers member questions from your uploaded documents — like having a support agent that actually read the manual."
+  }
+}

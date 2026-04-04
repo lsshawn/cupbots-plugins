@@ -1,0 +1,18 @@
+{
+  "name": "community",
+  "description": "All-in-one WhatsApp community management — gamification, moderation, onboarding, analytics, roles, and scheduled content",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/community"],
+  "config": [],
+  "free": false,
+  "price": "$49",
+  "price_type": "monthly",
+  "bundled": false,
+  "marketplace": {
+    "icon": "groups",
+    "tagline": "Run your community like a pro",
+    "category": "community",
+    "long_description": "The all-in-one toolkit for WhatsApp community managers. Replace GoHighLevel, Periskope, and CommuniPass with a single bot that lives inside your chat.\n\n**Gamification** — Award points for activity. Members level up from Newcomer to Legend. Leaderboards drive engagement without you lifting a finger.\n\n**Moderation** — Keyword filters, spam detection, warning system, auto-kick. Set it and forget it.\n\n**Onboarding** — New members automatically get a welcome DM when they join.\n\n**Roles** — Create custom roles (Moderator, VIP, Mentor) and assign them to members.\n\n**Analytics** — Track active members, engagement rates, and activity trends.\n\n**Scheduled Content** — Daily tips, weekly digests, recurring announcements.\n\n**Why $49/mo?** — Communities using GoHighLevel pay $97-497/mo. Periskope charges $20-30/seat. CommuniPass is $199/mo. CupBots Community gives you everything at a fraction of the cost, running natively inside WhatsApp."
+  }
+}
