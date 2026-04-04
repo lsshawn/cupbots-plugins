@@ -285,6 +285,26 @@
         "plugins/search.py"
       ]
     },
+    "stripe": {
+      "name": "stripe",
+      "description": "Stripe subscriptions \u2014 auto-invite paying customers to your WhatsApp community",
+      "version": "0.1.0",
+      "author": "CupBots",
+      "commands": [
+        "/stripe",
+        "/stripe status",
+        "/stripe subs",
+        "/stripe set",
+        "/stripe test",
+        "/stripe webhook"
+      ],
+      "config": [],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/stripe.py"
+      ]
+    },
     "upload": {
       "name": "upload",
       "description": "Auto-save files sent to the group",

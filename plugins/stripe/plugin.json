@@ -1,0 +1,10 @@
+{
+  "name": "stripe",
+  "description": "Stripe subscriptions — auto-invite paying customers to your WhatsApp community",
+  "version": "0.1.0",
+  "author": "CupBots",
+  "commands": ["/stripe", "/stripe status", "/stripe subs", "/stripe set", "/stripe test", "/stripe webhook"],
+  "config": [],
+  "free": true,
+  "bundled": true
+}
