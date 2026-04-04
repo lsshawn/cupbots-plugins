@@ -156,6 +156,42 @@
         "plugins/image_gen.py"
       ]
     },
+    "launchpad": {
+      "name": "launchpad",
+      "description": "Deploy landing pages from WhatsApp \u2014 design, iterate, and go live in minutes",
+      "version": "0.1.0",
+      "author": "CupBots",
+      "commands": [
+        "/lp",
+        "/lp sites",
+        "/lp edit",
+        "/lp status",
+        "/lp domain"
+      ],
+      "free": false,
+      "price": "$29",
+      "price_type": "monthly",
+      "config": [
+        {
+          "key": "LAUNCHPAD_API_URL",
+          "label": "Launchpad service URL",
+          "type": "text",
+          "required": true,
+          "help": "URL of the Launchpad deployment service"
+        },
+        {
+          "key": "LAUNCHPAD_API_KEY",
+          "label": "Launchpad API key",
+          "type": "secret",
+          "required": true,
+          "help": "API key for authenticating with the Launchpad service"
+        }
+      ],
+      "bundled": false,
+      "files": [
+        "plugins/launchpad.py"
+      ]
+    },
     "mdpubs": {
       "name": "mdpubs",
       "description": "Publish and manage markdown notes on mdpubs.com",
