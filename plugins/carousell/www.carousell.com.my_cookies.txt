@@ -1,0 +1,15 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+www.carousell.com.my	FALSE	/	TRUE	1775456347	_csrf	QuT3GZAgrAWL2wb_VowpzDNq
+.carousell.com.my	TRUE	/	TRUE	1809788196	_t2	SevYZP78zTbMKmttcoO8
+www.carousell.com.my	FALSE	/	FALSE	1790403571	g_state	{"i_l":0,"i_ll":1774851571044,"i_b":"P4dzBM68cKSdCuTC9HLALdwhV8wrbSyAHzGUOjHApUw","i_e":{"enable_itp_optimization":0}}
+www.carousell.com.my	FALSE	/	FALSE	1806387600	ipqsd	565539262993296100
+.www.carousell.com.my	TRUE	/	FALSE	1809411601	device_id_1774851601	fmAtyPeJcC-1774851601
+.www.carousell.com.my	TRUE	/	FALSE	1809411631	device_id_1774851630	fmAw8j4u6d-1774851630
+www.carousell.com.my	FALSE	/	TRUE	1777270831	jwt	eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJkZXZpY2VfaWQiOiI5NDY5NTVhZWZiODBhZGI5YTJkZTY1YzQ5ZTY0MjZmYjQwNzM5ZGEwNmFiMjljNzg0NWU2ZTUxMDI2NWRjOTRlIiwiaWQiOiI1MTQxMTU5IiwiaXNzIjoiYyIsImlzc3VlZF9hdCI6MTc3NDg1MTYzMSwic2VjcmV0IjoiMTExNiIsInVzZXIiOiJzaGF3bmw4In0.d1FVb2XC2VtGx59C2xJGWFMEHPqxO5JgRrx2vtPUxh4
+.carousell.com.my	TRUE	/	TRUE	0	_t	t%3D1774851631569%26u%3D5141159
+www.carousell.com.my	FALSE	/	FALSE	0	theme	%2Ctrue
+www.carousell.com.my	FALSE	/	FALSE	1775260799	latra	1775174400000
+www.carousell.com.my	FALSE	/	TRUE	1775228381	siv_2	f5f747fd-b381-42f7-adac-f502a86fdc49
