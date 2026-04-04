@@ -31,6 +31,7 @@
   "price": "$19",
   "price_type": "monthly",
   "bundled": false,
+  "status": "draft",
   "marketplace": {
     "icon": "smart_display",
     "tagline": "Get AI summaries of any YouTube video with timestamped quotes",

@@ -15,6 +15,7 @@
   ],
   "free": true,
   "bundled": true,
+  "status": "draft",
   "marketplace": {
     "icon": "image",
     "tagline": "Generate AI images from text prompts using Gemini",

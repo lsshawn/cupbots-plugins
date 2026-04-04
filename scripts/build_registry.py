@@ -24,6 +24,11 @@ def build():
         meta = json.loads(meta_file.read_text())
         name = meta["name"]
 
+        # Skip draft/unpublished plugins
+        if meta.get("status") == "draft":
+            print(f"  Skipping {name} (draft)")
+            continue
+
         # Collect all files in the plugin directory (except plugin.json)
         files = []
         for f in sorted(plugin_dir.iterdir()):
