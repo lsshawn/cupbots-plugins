@@ -1,0 +1,18 @@
+{
+  "name": "reddit",
+  "description": "AI-curated daily digest from your tracked subreddits — actionable insights, tech trends, and fun finds",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/reddit"],
+  "config": [],
+  "free": false,
+  "price": "$19",
+  "price_type": "monthly",
+  "bundled": false,
+  "marketplace": {
+    "icon": "forum",
+    "tagline": "AI-curated Reddit digest delivered to your chat",
+    "category": "media",
+    "long_description": "Track subreddits by category (signal, tech, finance, fun) and get a daily AI-curated digest delivered to WhatsApp. The AI extracts actionable business insights from startup subs, highlights notable tech launches, and picks the best fun posts — so you get the signal without the scroll. Pair with /schedule for automated daily delivery."
+  }
+}

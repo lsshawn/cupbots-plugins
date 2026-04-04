@@ -1,0 +1,40 @@
+{
+  "name": "ytdigest",
+  "description": "AI-powered YouTube video analysis with timestamped insights — processes single videos or entire RSS feeds",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/ytdigest"],
+  "config": [
+    {
+      "key": "MINIFLUX_URL",
+      "label": "Miniflux URL",
+      "type": "text",
+      "required": false,
+      "help": "Miniflux instance URL (for RSS batch mode)"
+    },
+    {
+      "key": "MINIFLUX_API_KEY",
+      "label": "Miniflux API Key",
+      "type": "secret",
+      "required": false,
+      "help": "Miniflux API key for fetching unread entries"
+    },
+    {
+      "key": "YTDIGEST_MIN_DURATION",
+      "label": "Min video duration (minutes)",
+      "type": "text",
+      "required": false,
+      "help": "Skip videos shorter than this (default: 3)"
+    }
+  ],
+  "free": false,
+  "price": "$19",
+  "price_type": "monthly",
+  "bundled": false,
+  "marketplace": {
+    "icon": "smart_display",
+    "tagline": "Get AI summaries of any YouTube video with timestamped quotes",
+    "category": "media",
+    "long_description": "Paste a YouTube URL and get a structured AI analysis with clickable timestamped quotes — mental models, actionable ideas, specific numbers, mistakes, and trends. Connect Miniflux RSS to automatically process new videos from your subscribed channels. Every insight links back to the exact moment in the video."
+  }
+}

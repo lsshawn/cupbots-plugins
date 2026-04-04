@@ -1,0 +1,33 @@
+{
+  "name": "xdigest",
+  "description": "AI market intelligence from your X/Twitter list — product signals, business ideas, distribution levers",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/xdigest"],
+  "config": [
+    {
+      "key": "XDIGEST_LIST_ID",
+      "label": "X List ID",
+      "type": "text",
+      "required": true,
+      "help": "The numeric ID of your X list (from the list URL)"
+    },
+    {
+      "key": "XDIGEST_COOKIES",
+      "label": "X Browser Cookies (JSON)",
+      "type": "secret",
+      "required": true,
+      "help": "Playwright storage_state JSON — export from 'Get cookies.txt LOCALLY' extension"
+    }
+  ],
+  "free": false,
+  "price": "$29",
+  "price_type": "monthly",
+  "bundled": false,
+  "marketplace": {
+    "icon": "trending_up",
+    "tagline": "Turn your X feed into a market intelligence briefing",
+    "category": "media",
+    "long_description": "Point it at any X/Twitter list and get an AI-generated market opportunity map. The analysis identifies product launches with real traction, extracts business ideas from builder complaints, maps distribution channels, and surfaces contrarian takes most founders miss. Five-lens framework: Product Intelligence, Business Ideas, Distribution Playbook, Friction Map, and Mental Models."
+  }
+}
