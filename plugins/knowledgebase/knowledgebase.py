@@ -118,21 +118,15 @@ async def _upload_to_chunker(file_bytes: bytes, filename: str,
         return {"documentId": doc.get("id"), "status": doc.get("status", "pending")}
 
 
-async def _poll_document(doc_id: int, max_wait: int = 120) -> dict:
-    """Poll until document processing completes. Returns document dict."""
-    import asyncio
+async def _check_document(doc_id: int) -> dict:
+    """Check document status once. Returns document dict."""
     async with httpx.AsyncClient(timeout=15) as client:
-        for _ in range(max_wait // 3):
-            r = await client.get(
-                f"{CHUNKER_API_URL}/documents/{doc_id}",
-                headers=_headers(),
-            )
-            r.raise_for_status()
-            doc = r.json().get("document", r.json())
-            if doc.get("status") in ("completed", "failed"):
-                return doc
-            await asyncio.sleep(3)
-    return {"status": "timeout"}
+        r = await client.get(
+            f"{CHUNKER_API_URL}/documents/{doc_id}",
+            headers=_headers(),
+        )
+        r.raise_for_status()
+        return r.json().get("document", r.json())
 
 
 async def _search_chunker(query: str, limit: int = 5,
@@ -321,19 +315,7 @@ async def _handle_upload(file_bytes: bytes, filename: str, mime: str,
     local_id = _save_doc(company_id, chat_id, chunker_id, filename,
                          sender_id, status="processing")
 
-    # Poll for completion
-    doc = await _poll_document(chunker_id)
-    status = doc.get("status", "unknown")
-    chunks = doc.get("chunks", doc.get("chunkCount", 0))
-
-    _update_doc_status(local_id, status, chunks)
-
-    if status == "completed":
-        return f"Uploaded: {filename} ({chunks} chunks indexed, ID: {local_id})"
-    elif status == "failed":
-        return f"Processing failed for {filename}. Try again."
-    else:
-        return f"Upload started for {filename} (ID: {local_id}) — processing in background."
+    return f"Uploaded: {filename} (ID: {local_id}). Processing in background — use /kb list to check status."
 
 
 async def _handle_search(args: list[str], company_id: str,
@@ -428,6 +410,20 @@ async def _handle_list(company_id: str, chat_id: str) -> str:
     docs = _get_docs(company_id, chat_id)
     if not docs:
         return "No documents uploaded yet. Send a file to get started."
+
+    # Refresh status for any still-processing docs
+    for d in docs:
+        if d["status"] == "processing":
+            try:
+                remote = await _check_document(d["chunker_doc_id"])
+                if remote.get("status") in ("completed", "failed"):
+                    chunks = remote.get("chunks", remote.get("chunkCount", 0))
+                    _update_doc_status(d["id"], remote["status"], chunks)
+            except Exception:
+                pass
+    # Re-fetch after updates
+    docs = _get_docs(company_id, chat_id)
+
     lines = ["Documents:\n"]
     for d in docs[:20]:
         tags = f" [{d['tags']}]" if d["tags"] else ""
