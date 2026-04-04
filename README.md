@@ -1,35 +1,57 @@
-# CupBots Plugins
+# CupBots Plugins (Private)
 
-Official plugin marketplace for [CupBots](https://github.com/USER/cupbots). This repo contains all official plugins — both free bundled plugins and paid premium plugins.
+Private repo containing plugin **source code** for [CupBots](https://github.com/lsshawn/cupbots). Marketplace metadata lives in the public [cupbots-plugins-registry](https://github.com/lsshawn/cupbots-plugins-registry).
+
+## Two-Repo Architecture
+
+```
+cupbots-plugins (this repo, PRIVATE)     cupbots-plugins-registry (PUBLIC)
+├── plugins/                              ├── plugins/
+│   ├── note/                             │   ├── note/
+│   │   ├── note.py        ← source      │   │   ├── plugin.json  ← metadata
+│   │   └── plugin.json                   │   │   └── screenshot.png
+│   └── ...                               │   └── ...
+├── registry.json (with file paths)       ├── registry.json (no file paths)
+└── scripts/                              └── scripts/
+    └── build_registry.py                     ├── build_registry.py
+                                              └── sync_from_private.py
+```
+
+- **This repo**: plugin `.py` files + `plugin.json` with core metadata
+- **Public registry**: `plugin.json` with marketplace fields (tagline, icon, category) + assets (screenshots)
+- Source code is never exposed publicly. Downloads are gated by the API.
 
 ## Structure
 
 ```
-cupbots-plugins/
-├── plugins/
-│   ├── note/
-│   │   ├── note.py         # Plugin code
-│   │   └── plugin.json     # Metadata (name, version, commands, config, pricing)
-│   ├── calendar/
-│   │   ├── calendar_plugin.py
-│   │   └── plugin.json
-│   ├── mdpubs/
-│   │   ├── mdpubs_plugin.py
-│   │   ├── 1712000001_mdpubs_notes.js  # PocketBase migration
-│   │   └── plugin.json
-│   └── ...
-├── registry.json           # Auto-generated — DO NOT edit manually
-└── scripts/
-    └── build_registry.py   # Generates registry.json from plugin.json files
+plugins/
+├── note/
+│   ├── note.py             # Plugin code
+│   └── plugin.json         # Core metadata
+├── mdpubs/
+│   ├── mdpubs_plugin.py
+│   ├── 1712000001_mdpubs_notes.js  # PocketBase migration
+│   └── plugin.json
+└── ...
 ```
 
 ## Adding a Plugin
 
 1. Create a directory under `plugins/` with your plugin name
 2. Add your `.py` file and `plugin.json`
-3. If your plugin needs a DB table, add a PocketBase migration `.js` file
-4. Run `python3 scripts/build_registry.py` to regenerate `registry.json`
-5. Commit all files including the updated `registry.json`
+3. Run `python3 scripts/build_registry.py` to regenerate `registry.json`
+4. Commit all files including the updated `registry.json`
+5. Also submit marketplace metadata (tagline, icon, screenshot) to [cupbots-plugins-registry](https://github.com/lsshawn/cupbots-plugins-registry)
+
+## Syncing Metadata to Public Registry
+
+To sync core fields from this repo to the public registry (preserving marketplace fields):
+
+```bash
+cd /path/to/cupbots-plugins-registry
+python3 scripts/sync_from_private.py /path/to/cupbots-plugins
+python3 scripts/build_registry.py
+```
 
 ## plugin.json Format
 
@@ -75,16 +97,6 @@ cupbots-plugins/
 }
 ```
 
-## Rebuilding the Registry
-
-After any change to plugin.json files:
-
-```bash
-python3 scripts/build_registry.py
-```
-
-This walks all `plugins/*/plugin.json`, collects file lists, and writes `registry.json`.
-
 ## Plugin Development Guide
 
-See [DEVELOPER.md](https://github.com/USER/cupbots/blob/main/DEVELOPER.md) in the main framework repo for the full plugin development guide.
+See [DEVELOPER.md](https://github.com/lsshawn/cupbots/blob/main/DEVELOPER.md) in the main framework repo.

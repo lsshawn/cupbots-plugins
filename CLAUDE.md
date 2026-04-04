@@ -1,6 +1,6 @@
-# CupBots Plugins (Marketplace)
+# CupBots Plugins (Private)
 
-Private repo containing all official CupBots plugins. Served to users via the marketplace API or read locally by the framework.
+Private repo containing plugin **source code**. Marketplace metadata (tagline, icon, screenshots) lives in the public [cupbots-plugins-registry](https://github.com/lsshawn/cupbots-plugins-registry).
 
 ## Structure
 
@@ -33,3 +33,5 @@ See `_template.py` in the main cupbots framework repo: `cupbots/plugins/_templat
 2. Update `plugin.json` version if changed
 3. Run `python3 scripts/build_registry.py`
 4. Commit all files including `registry.json`
+5. Sync metadata to public registry: `cd ../cupbots-plugins-registry && python3 scripts/sync_from_private.py ../cupbots-plugins && python3 scripts/build_registry.py`
+6. Commit and push the public registry (triggers Vercel landing page rebuild)

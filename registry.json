@@ -83,6 +83,29 @@
         "plugins/calendar_briefing.py"
       ]
     },
+    "community": {
+      "name": "community",
+      "description": "All-in-one WhatsApp community management \u2014 gamification, moderation, onboarding, analytics, roles, and scheduled content",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/community"
+      ],
+      "config": [],
+      "free": false,
+      "price": "$49",
+      "price_type": "monthly",
+      "bundled": false,
+      "marketplace": {
+        "icon": "groups",
+        "tagline": "Run your community like a pro",
+        "category": "community",
+        "long_description": "The all-in-one toolkit for WhatsApp community managers. Replace GoHighLevel, Periskope, and CommuniPass with a single bot that lives inside your chat.\n\n**Gamification** \u2014 Award points for activity. Members level up from Newcomer to Legend. Leaderboards drive engagement without you lifting a finger.\n\n**Moderation** \u2014 Keyword filters, spam detection, warning system, auto-kick. Set it and forget it.\n\n**Onboarding** \u2014 New members automatically get a welcome DM when they join.\n\n**Roles** \u2014 Create custom roles (Moderator, VIP, Mentor) and assign them to members.\n\n**Analytics** \u2014 Track active members, engagement rates, and activity trends.\n\n**Scheduled Content** \u2014 Daily tips, weekly digests, recurring announcements.\n\n**Why $49/mo?** \u2014 Communities using GoHighLevel pay $97-497/mo. Periskope charges $20-30/seat. CommuniPass is $199/mo. CupBots Community gives you everything at a fraction of the cost, running natively inside WhatsApp."
+      },
+      "files": [
+        "plugins/community.py"
+      ]
+    },
     "contacts": {
       "name": "contacts",
       "description": "Personal CRM \u2014 track contacts, tiers, interactions, and follow-ups",
@@ -115,6 +138,29 @@
       "bundled": true,
       "files": [
         "plugins/daily_briefing.py"
+      ]
+    },
+    "faq": {
+      "name": "faq",
+      "description": "Trainable Q&A bot \u2014 add FAQ entries, fuzzy search, auto-answer in groups",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/faq"
+      ],
+      "config": [],
+      "free": false,
+      "price": "$19",
+      "price_type": "monthly",
+      "bundled": false,
+      "marketplace": {
+        "icon": "quiz",
+        "tagline": "Instant answers from your knowledge base",
+        "category": "productivity",
+        "long_description": "Train a Q&A bot for your group in seconds. Add question-answer pairs and let the bot auto-reply when members ask common questions. Fuzzy search finds the best match even when the question isn't worded exactly. Toggle auto-answer mode so the bot proactively answers without needing /faq \u2014 like having a 24/7 support agent in your group."
+      },
+      "files": [
+        "plugins/faq.py"
       ]
     },
     "ideas": {
