@@ -27,7 +27,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from cupbots.config import get_config, get_thread_id
+from cupbots.config import get_config
 from cupbots.helpers.jobs import enqueue, register_handler, cancel_job, get_pending_jobs
 from cupbots.helpers.logger import get_logger
 from cupbots.helpers.llm import run_claude_cli, _extract_json
@@ -142,8 +142,7 @@ def _format_delta(delta: timedelta) -> str:
 
 # --- Core logic (shared between Telegram and cross-platform) ---
 
-async def _do_schedule(raw: str, tg_chat_id: int | None = None,
-                       tg_thread_id: int | None = None) -> str:
+async def _do_schedule(raw: str, tg_chat_id: int | None = None) -> str:
     """Schedule a WhatsApp message. Returns status text."""
     if not raw:
         return (
@@ -196,7 +195,6 @@ async def _do_schedule(raw: str, tg_chat_id: int | None = None,
     # Include Telegram notification info if available
     if tg_chat_id is not None:
         payload["tg_chat_id"] = tg_chat_id
-        payload["tg_thread_id"] = tg_thread_id
 
     job_id = enqueue(
         queue="wa_send",
@@ -264,7 +262,6 @@ async def _handle_wa_send_job(payload: dict, bot=None):
         try:
             await bot.send_message(
                 chat_id=payload["tg_chat_id"],
-                message_thread_id=payload.get("tg_thread_id"),
                 text=f"Scheduled WhatsApp sent to *{chat_name}*:\n{message}",
                 parse_mode="Markdown",
             )
@@ -329,9 +326,7 @@ async def _start_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cfg = get_config()
     tg_chat_id = int(cfg["telegram"]["chat_id"])
-    devops_thread = get_thread_id("devops")
-
-    result = await _do_schedule(raw, tg_chat_id=tg_chat_id, tg_thread_id=devops_thread)
+    result = await _do_schedule(raw, tg_chat_id=tg_chat_id)
     await update.message.reply_text(result, parse_mode="Markdown")
 
 

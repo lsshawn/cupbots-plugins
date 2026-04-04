@@ -36,14 +36,13 @@ from telegram.ext import (
     filters,
 )
 
-from cupbots.config import get_config, get_thread_id
+from cupbots.config import get_config
 from cupbots.helpers.logger import get_logger
 from cupbots.helpers.llm import run_claude_cli, add_history, get_history_context
 
 log = get_logger("whatsapp")
 
 WA_API = os.environ.get("WA_API_URL", "http://127.0.0.1:3100")
-DEVOPS_THREAD_ID = get_thread_id("devops") or 134
 
 # Conversation states
 PICK_CHAT, WAITING_REPLY = range(2)
@@ -143,8 +142,7 @@ async def _wa_pair(update: Update):
         chat_id = int(get_config()["telegram"]["chat_id"])
         await update.get_bot().send_message(
             chat_id=chat_id,
-            message_thread_id=DEVOPS_THREAD_ID,
-            text="📱 WhatsApp re-pairing initiated. Waiting for QR scan.",
+            text="WhatsApp re-pairing initiated. Waiting for QR scan.",
         )
     except Exception as e:
         await msg.edit_text(f"Pair failed: {e}")
