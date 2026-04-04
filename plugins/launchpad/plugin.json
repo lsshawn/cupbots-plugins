@@ -23,5 +23,11 @@
       "help": "API key for authenticating with the Launchpad service"
     }
   ],
-  "bundled": false
+  "bundled": false,
+  "marketplace": {
+    "icon": "rocket_launch",
+    "tagline": "Deploy landing pages from WhatsApp in minutes",
+    "category": "developer",
+    "long_description": "Describe your landing page in plain text and get a live site deployed instantly. Edit headlines, swap sections, connect custom domains, and check analytics — all without leaving WhatsApp. Ideal for launching MVPs and marketing pages fast."
+  }
 }

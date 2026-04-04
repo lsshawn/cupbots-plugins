@@ -26,5 +26,11 @@
     }
   ],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "calendar_month",
+    "tagline": "Full calendar management from WhatsApp via CalDAV",
+    "category": "productivity",
+    "long_description": "View your agenda, find free slots, and create events using natural language — all from WhatsApp. Supports recurring events, ICS imports, holiday syncing, and integrates with any CalDAV server like Radicale or Nextcloud."
+  }
 }

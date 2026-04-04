@@ -14,5 +14,11 @@
     }
   ],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "image",
+    "tagline": "Generate AI images from text prompts using Gemini",
+    "category": "media",
+    "long_description": "Create images on the fly with Google Gemini — just describe what you want. Use flash mode for quick drafts or pro mode for higher quality. Reply to any photo to use it as a reference for variations and edits."
+  }
 }

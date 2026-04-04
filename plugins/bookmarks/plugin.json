@@ -6,5 +6,11 @@
   "commands": ["/bookmark", "/bookmarks", "/unbookmark"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "bookmark",
+    "tagline": "Save, search, and tag links without leaving the chat",
+    "category": "productivity",
+    "long_description": "Never lose a useful link again. Save bookmarks with auto-fetched titles, organize them with hashtags, and search your collection instantly. Perfect for teams that share resources across WhatsApp conversations."
+  }
 }

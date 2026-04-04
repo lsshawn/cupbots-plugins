@@ -6,5 +6,11 @@
   "commands": ["/note", "/notes"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "edit_note",
+    "tagline": "Create Zettelkasten-style notes from WhatsApp",
+    "category": "productivity",
+    "long_description": "Capture thoughts as structured markdown notes in Zettelkasten format. Each note gets a timestamped filename and frontmatter, ready for your PKM workflow. Browse recent notes without leaving the chat."
+  }
 }

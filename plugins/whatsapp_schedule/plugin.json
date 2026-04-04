@@ -15,5 +15,11 @@
   ],
   "requires": ["whatsapp"],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "schedule_send",
+    "tagline": "Schedule WhatsApp messages with natural language timing",
+    "category": "communication",
+    "long_description": "Type who, what, and when in plain English and the bot handles the rest. Schedule messages to any contact or group using AI-parsed time expressions. List and cancel pending messages anytime."
+  }
 }

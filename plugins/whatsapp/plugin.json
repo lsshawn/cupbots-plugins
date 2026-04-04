@@ -14,5 +14,11 @@
     }
   ],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "chat",
+    "tagline": "Read, reply, search, and summarize WhatsApp from your bot",
+    "category": "communication",
+    "long_description": "Manage your WhatsApp inbox without picking up your phone. Read recent messages, reply to conversations, search across all chats, and get AI-powered summaries. Includes QR pairing and reconnect controls."
+  }
 }

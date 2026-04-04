@@ -6,5 +6,11 @@
   "commands": ["/idea", "/ideas"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "lightbulb",
+    "tagline": "Capture ideas the moment they strike, review later",
+    "category": "productivity",
+    "long_description": "Don't let good ideas slip away. Jot down thoughts instantly from WhatsApp and review them organized by year. Great for founders and creators who need a frictionless way to build an idea backlog."
+  }
 }

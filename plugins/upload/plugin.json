@@ -6,5 +6,11 @@
   "commands": ["/uploads"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "cloud_upload",
+    "tagline": "Auto-save files, photos, and videos sent to any group",
+    "category": "productivity",
+    "long_description": "Every file shared in the group is automatically saved and organized. Specify a folder in the caption to sort files on the fly. Browse recent uploads anytime with a single command."
+  }
 }

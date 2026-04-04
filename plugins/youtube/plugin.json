@@ -6,5 +6,11 @@
   "commands": ["/yt"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "smart_display",
+    "tagline": "Get AI summaries of any YouTube video in seconds",
+    "category": "media",
+    "long_description": "Paste a YouTube link and get a full transcript extracted and summarized by Claude. Ask follow-up questions about the video content. Ideal for quickly digesting long talks, tutorials, and interviews without watching."
+  }
 }

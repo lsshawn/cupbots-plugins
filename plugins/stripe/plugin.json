@@ -6,5 +6,11 @@
   "commands": ["/stripe", "/stripe status", "/stripe subs", "/stripe set", "/stripe test", "/stripe webhook"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "payments",
+    "tagline": "Auto-invite Stripe customers to your WhatsApp community",
+    "category": "finance",
+    "long_description": "Connect Stripe to your WhatsApp community for automated onboarding. When a customer pays, they automatically receive a WhatsApp DM with your community invite link. Monitor subscriber stats and test the flow from chat."
+  }
 }

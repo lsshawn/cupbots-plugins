@@ -7,5 +7,11 @@
   "config": [],
   "requires": ["calendar"],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "today",
+    "tagline": "Automated daily briefings and upcoming event reminders",
+    "category": "productivity",
+    "long_description": "Start your day prepared with calendar briefings delivered straight to WhatsApp. Get tonight and tomorrow previews, week-ahead summaries, and automatic reminders before upcoming events so nothing slips through the cracks."
+  }
 }

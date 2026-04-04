@@ -6,5 +6,11 @@
   "commands": ["/remind", "/reminders"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "alarm",
+    "tagline": "Set reminders with natural language like '2h' or 'friday 3pm'",
+    "category": "productivity",
+    "long_description": "Never forget a follow-up again. Set reminders using natural time expressions — relative (30m, 2h, 1d) or absolute (friday 3pm, march 25). List and manage pending reminders from any chat."
+  }
 }

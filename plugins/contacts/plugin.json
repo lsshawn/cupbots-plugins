@@ -6,5 +6,11 @@
   "commands": ["/crm", "/whois", "/remember", "/addcontact", "/contacts"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "contacts",
+    "tagline": "Personal CRM with tiered contacts and follow-up reminders",
+    "category": "productivity",
+    "long_description": "Track your professional network right from WhatsApp. Add contacts, assign importance tiers, log interactions, and get nudged when it's time to follow up. Fuzzy name search and tagging make it easy to find anyone in seconds."
+  }
 }

@@ -6,5 +6,11 @@
   "commands": ["/daily"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "wb_sunny",
+    "tagline": "Get your daily agenda delivered every morning",
+    "category": "productivity",
+    "long_description": "Receive a clean summary of today's calendar events each morning in WhatsApp. No need to open your calendar app — your agenda comes to you so you can plan your day at a glance."
+  }
 }

@@ -15,5 +15,11 @@
   ],
   "migrations": ["1712000001_mdpubs_notes.js"],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "publish",
+    "tagline": "Publish markdown notes to the web from WhatsApp",
+    "category": "productivity",
+    "long_description": "Turn WhatsApp messages into published web pages on mdpubs.com. Write in markdown, add tags, and share a public link instantly. Perfect for quick blog posts, meeting notes, or internal knowledge base articles."
+  }
 }

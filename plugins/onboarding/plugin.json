@@ -6,5 +6,11 @@
   "commands": ["/onboard"],
   "config": [],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "waving_hand",
+    "tagline": "Automated welcome messages and onboarding for new members",
+    "category": "communication",
+    "long_description": "Greet new group members automatically with custom welcome messages, group rules, and optional DM introductions. Configure delays, enable self-introductions, and preview everything with a guided setup wizard."
+  }
 }
