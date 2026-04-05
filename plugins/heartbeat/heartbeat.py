@@ -42,10 +42,10 @@ VENV_PY = str(PROJECT_ROOT / "venv" / "bin" / "python3")
 def _gather_calendar(tz: ZoneInfo) -> str:
     """Today's events + tomorrow preview."""
     try:
-        from cupbots.helpers.caldav_client import CalDAVClient
+        from cupbots.helpers.calendar_client import get_calendar_client
         from dotenv import load_dotenv
         load_dotenv(PROJECT_ROOT / ".env")
-        cal = CalDAVClient()
+        cal = get_calendar_client()
         today_events = cal.get_events_today()
         tomorrow = datetime.now(tz) + timedelta(days=1)
         tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)

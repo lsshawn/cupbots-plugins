@@ -17,7 +17,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from cupbots.config import get_config
-from cupbots.helpers.caldav_client import CalDAVClient
+from cupbots.helpers.calendar_client import get_calendar_client
 from cupbots.helpers.logger import get_logger
 
 log = get_logger("briefing")
@@ -34,7 +34,7 @@ _reminded_lock = asyncio.Lock()
 def _build_briefing() -> str | None:
     """Build today's briefing text. Returns None if no events."""
     try:
-        cal = CalDAVClient()
+        cal = get_calendar_client()
         events = cal.get_events_today()
     except Exception as e:
         return f"❌ Calendar unavailable: {e}"
@@ -79,7 +79,7 @@ def _build_tonight_tomorrow_preview() -> str | None:
         today = now.date()
         tomorrow = today + timedelta(days=1)
 
-        cal = CalDAVClient()
+        cal = get_calendar_client()
 
         # Fetch 3 days to work around Radicale CalDAV timezone bug
         # (single-day queries miss events when local TZ is ahead of UTC)
@@ -161,7 +161,7 @@ async def _check_upcoming_reminders(context: ContextTypes.DEFAULT_TYPE):
         now = datetime.now(tz)
         chat_id = cfg["telegram"]["chat_id"]
 
-        cal = CalDAVClient()
+        cal = get_calendar_client()
         # Look ahead 1 hour to catch events in the reminder window
         events = cal.get_events(now, now + timedelta(hours=1))
     except Exception as e:
@@ -219,7 +219,7 @@ def _build_week_ahead() -> str | None:
         now = datetime.now(tz)
         tomorrow = now.date() + timedelta(days=1)
 
-        cal = CalDAVClient()
+        cal = get_calendar_client()
         start = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, tzinfo=tz)
         end = start + timedelta(days=7)
         events = cal.get_events(start, end)

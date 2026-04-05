@@ -12,7 +12,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from cupbots.config import get_config
-from cupbots.helpers.caldav_client import CalDAVClient
+from cupbots.helpers.calendar_client import get_calendar_client
 from cupbots.helpers.logger import get_logger
 
 log = get_logger("daily")
@@ -25,7 +25,7 @@ def build_daily_briefing() -> str:
     now = datetime.now(tz)
 
     try:
-        cal = CalDAVClient()
+        cal = get_calendar_client()
         events = cal.get_events_range(days=1)
     except Exception as e:
         return f"☀️ Daily Briefing — {now.strftime('%A, %d %B %Y')}\n\n📅 Calendar unavailable: {e}"

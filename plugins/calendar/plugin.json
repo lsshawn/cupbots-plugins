@@ -1,36 +1,80 @@
 {
   "name": "calendar",
-  "description": "Calendar management via CalDAV",
-  "version": "1.0.0",
+  "description": "Calendar management via CalDAV or Google Calendar",
+  "version": "1.1.0",
   "author": "CupBots",
   "commands": ["/cal", "/event"],
   "config": [
     {
+      "key": "CALENDAR_BACKEND",
+      "label": "Calendar backend",
+      "type": "text",
+      "required": false,
+      "help": "caldav (default) or google"
+    },
+    {
       "key": "CALDAV_URL",
       "label": "CalDAV Server URL",
       "type": "text",
-      "required": true,
-      "help": "e.g. https://radicale.example.com/user/calendar/"
+      "required": false,
+      "help": "e.g. https://radicale.example.com/user/calendar/ (required for caldav backend)"
     },
     {
       "key": "CALDAV_USERNAME",
       "label": "CalDAV Username",
       "type": "text",
-      "required": true
+      "required": false,
+      "help": "Required for caldav backend"
     },
     {
       "key": "CALDAV_PASSWORD",
       "label": "CalDAV Password",
       "type": "secret",
-      "required": true
+      "required": false,
+      "help": "Required for caldav backend"
+    },
+    {
+      "key": "GOOGLE_CALENDAR_CREDENTIALS",
+      "label": "Google service account JSON (path or inline)",
+      "type": "secret",
+      "required": false,
+      "help": "Required for google backend (service account auth)"
+    },
+    {
+      "key": "GOOGLE_CALENDAR_ID",
+      "label": "Google Calendar ID",
+      "type": "text",
+      "required": false,
+      "help": "Default: primary. Use a specific calendar ID for shared calendars"
+    },
+    {
+      "key": "GOOGLE_CALENDAR_CLIENT_ID",
+      "label": "Google OAuth2 Client ID",
+      "type": "text",
+      "required": false,
+      "help": "For OAuth2 refresh token auth (alternative to service account)"
+    },
+    {
+      "key": "GOOGLE_CALENDAR_CLIENT_SECRET",
+      "label": "Google OAuth2 Client Secret",
+      "type": "secret",
+      "required": false,
+      "help": "For OAuth2 refresh token auth"
+    },
+    {
+      "key": "GOOGLE_CALENDAR_REFRESH_TOKEN",
+      "label": "Google OAuth2 Refresh Token",
+      "type": "secret",
+      "required": false,
+      "help": "For OAuth2 refresh token auth"
     }
   ],
   "free": true,
   "bundled": true,
   "marketplace": {
     "icon": "calendar_month",
-    "tagline": "Full calendar management from WhatsApp via CalDAV",
+    "tagline": "Full calendar management from WhatsApp — CalDAV or Google Calendar",
     "category": "productivity",
-    "long_description": "View your agenda, find free slots, and create events using natural language — all from WhatsApp. Supports recurring events, ICS imports, holiday syncing, and integrates with any CalDAV server like Radicale or Nextcloud."
+    "long_description": "View your agenda, find free slots, and create events using natural language — all from WhatsApp. Supports CalDAV (Radicale, Nextcloud) and Google Calendar. Recurring events, ICS imports, holiday syncing."
   }
 }

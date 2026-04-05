@@ -269,12 +269,12 @@ async def _action_notify(email_data: dict, rule: dict, company_id: str):
 
 async def _action_calendar(email_data: dict, rule: dict, company_id: str):
     try:
-        from cupbots.helpers.caldav_client import CalDAVClient
+        from cupbots.helpers.calendar_client import get_calendar_client
     except ImportError:
-        log.warning("CalDAV client not available")
+        log.warning("Calendar client not available")
         return
 
-    cal = CalDAVClient()
+    cal = get_calendar_client()
     imported = 0
     for att in email_data["attachments"]:
         if att["filename"].lower().endswith(".ics") or att["content_type"] == "text/calendar":

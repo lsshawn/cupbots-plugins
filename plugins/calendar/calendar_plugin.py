@@ -30,8 +30,7 @@ from telegram.ext import (
     filters,
 )
 
-# Add scripts/ to path so we can import helpers
-from cupbots.helpers.caldav_client import CalDAVClient
+from cupbots.helpers.calendar_client import get_calendar_client, CalendarClient
 from cupbots.helpers.logger import get_logger
 from icalendar import Calendar as iCalendar
 
@@ -39,8 +38,8 @@ log = get_logger("calendar")
 TZ = ZoneInfo("Asia/Kuala_Lumpur")
 
 
-def _get_client() -> CalDAVClient:
-    return CalDAVClient()
+def _get_client() -> CalendarClient:
+    return get_calendar_client()
 
 
 def _format_event(ev: dict) -> str:
@@ -727,29 +726,15 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uids_to_delete = {matches[0]["uid"]}
 
     try:
-        calendar = cal.calendar
-        # Search without expand to get the actual calendar objects (including RRULE)
-        results = calendar.search(
-            start=now,
-            end=now + timedelta(days=365),
-            event=True,
-            expand=False,
+        deleted_count = cal.delete_events_by_uid(
+            uids_to_delete, now, now + timedelta(days=365)
         )
-        deleted_count = 0
-        for item in results:
-            vcal = iCalendar.from_ical(item.data)
-            for component in vcal.walk("VEVENT"):
-                uid = str(component.get("uid", ""))
-                if uid in uids_to_delete:
-                    item.delete()
-                    deleted_count += 1
-                    break
     except Exception as e:
         await update.message.reply_text(f"❌ Failed to delete: {e}")
         return
 
     if deleted_count == 0:
-        await update.message.reply_text("❌ Event found but couldn't delete it from CalDAV.")
+        await update.message.reply_text("❌ Event found but couldn't delete it from calendar.")
         return
 
     if delete_all and len(matches) > 1:
@@ -1031,16 +1016,7 @@ async def cmd_holidays_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if existing_entries:
             old_uids = {uid for _, uid in existing_entries}
             try:
-                results = cal.calendar.search(
-                    start=scope_start, end=scope_end,
-                    event=True, expand=False,
-                )
-                for item in results:
-                    item_vcal = iCalendar.from_ical(item.data)
-                    for comp in item_vcal.walk("VEVENT"):
-                        if str(comp.get("uid", "")) in old_uids:
-                            item.delete()
-                            break
+                cal.delete_events_by_uid(old_uids, scope_start, scope_end)
             except Exception as e:
                 log.error("Failed to delete old holiday %s: %s", summary, e)
 
@@ -1051,12 +1027,12 @@ async def cmd_holidays_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Add the new/updated holiday
         single = iCalendar()
-        single.add("prodid", "-//TelegramBot//Holidays//EN")
+        single.add("prodid", "-//CupBots//Holidays//EN")
         single.add("version", "2.0")
         single.add_component(component)
 
         try:
-            cal.calendar.save_event(single.to_ical().decode())
+            cal.save_raw_ics(single.to_ical().decode())
         except Exception as e:
             log.error("Failed to import holiday %s: %s", summary, e)
 
@@ -1475,26 +1451,15 @@ async def _handle_delete(msg, reply) -> bool:
         uids_to_delete = {matches[0]["uid"]}
 
     try:
-        calendar = cal.calendar
-        results = calendar.search(
-            start=now, end=now + timedelta(days=365),
-            event=True, expand=False,
+        deleted_count = cal.delete_events_by_uid(
+            uids_to_delete, now, now + timedelta(days=365)
         )
-        deleted_count = 0
-        for item in results:
-            vcal = iCalendar.from_ical(item.data)
-            for component in vcal.walk("VEVENT"):
-                uid = str(component.get("uid", ""))
-                if uid in uids_to_delete:
-                    item.delete()
-                    deleted_count += 1
-                    break
     except Exception as e:
         await reply.reply_error(f"Failed to delete: {e}")
         return True
 
     if deleted_count == 0:
-        await reply.reply_text("Event found but couldn't delete it from CalDAV.")
+        await reply.reply_text("Event found but couldn't delete it from calendar.")
         return True
 
     if delete_all and len(matches) > 1:
