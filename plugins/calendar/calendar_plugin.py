@@ -1,18 +1,17 @@
 """
 Calendar
 
-Commands (works in any topic):
-  /today                           — Today's remaining events
-  /day <date>                      — Events on a specific date (e.g. thursday, 25 jun)
-  /week                            — Next 7 days
-  /next                            — Next upcoming event
-  /agenda [N]                      — Next N days (default 3)
-  /free [date]                     — Free slots (today or specific date)
-  /event <natural language>                — Add event (supports recurring, locations, URLs)
-  /delete <search>                 — Delete an event by title (add "all" for recurring)
-  /holidays [3m|6m|1y]             — Upcoming public holidays (default: 3m)
-  /holidays sync [country]         — Sync public holidays to calendar (default: malaysia)
-  /cal                             — Help text
+Commands:
+  /cal                             — Today's events
+  /cal <N>                         — Next N days (e.g. /cal 5)
+  /cal week                        — Next 7 days
+  /cal next                        — Next upcoming event
+  /cal <date>                      — Events on a date (e.g. thursday, 25 jun)
+  /cal free [date]                 — Free slots (today or specific date)
+  /cal holidays [3m|6m|1y]         — Upcoming public holidays (default: 3m)
+  /cal holidays sync [country]     — Sync holidays to calendar (default: malaysia)
+  /event <natural language>        — Add event (supports recurring, locations, URLs)
+  /event delete <search>           — Delete event by title (add "all" for recurring)
 
 ICS forwarding:
   Forward an email with .ics attachment → bot parses and adds to calendar
@@ -563,10 +562,17 @@ async def cmd_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Usage:\n"
             "`/event Dentist tomorrow 14:00 30m`\n"
             "`/event Checkup at Sunway 10am this thursday`\n"
-            "`/event Meeting with Larry every wed 10pm https://zoom.us/j/123`",
+            "`/event Meeting with Larry every wed 10pm https://zoom.us/j/123`\n"
+            "`/event delete <search>` — Delete event\n"
+            "`/event delete all <search>` — Delete all recurring",
             parse_mode="Markdown",
         )
         return
+
+    # /event delete → delegate to cmd_delete
+    if context.args[0].lower() == "delete":
+        context.args = context.args[1:]
+        return await cmd_delete(update, context)
 
     raw = " ".join(context.args)
     location = ""
@@ -1111,31 +1117,74 @@ async def cmd_holidays_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+_TG_CAL_HELP = (
+    "📅 *Calendar commands:*\n\n"
+    "`/cal` — Today's events\n"
+    "`/cal 5` — Next 5 days\n"
+    "`/cal week` — Next 7 days\n"
+    "`/cal next` — Next upcoming event\n"
+    "`/cal thursday` — Events on a date\n"
+    "`/cal free` — Free slots today\n"
+    "`/cal free tomorrow` — Free slots on date\n"
+    "`/cal holidays` — Upcoming holidays (3m)\n"
+    "`/cal holidays sync` — Sync holidays to calendar\n\n"
+    "`/event Dentist tomorrow 2pm 30m` — Add event\n"
+    "`/event Yoga every monday 7am` — Recurring\n"
+    "`/event Call with Bob wed 3pm https://zoom.us/j/123` — With location\n"
+    "`/event delete <search>` — Delete event by title\n"
+    "`/event delete all <search>` — Delete all recurring\n\n"
+    "📎 Forward a `.ics` file to import events."
+)
+
+
 async def cmd_cal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unified /cal command for Telegram."""
     if not update.message:
         return
 
-    await update.message.reply_text(
-        "📅 *Calendar commands:*\n\n"
-        "`/today` — Today's events\n"
-        "`/week` — Next 7 days\n"
-        "`/next` — Next upcoming event\n"
-        "`/agenda` — Next 3 days\n"
-        "`/agenda 5` — Next 5 days\n"
-        "`/free` — Free slots today\n"
-        "`/free tomorrow` — Free slots tomorrow\n"
-        "`/free 25/03` — Free slots on date\n"
-        "`/event Dentist tomorrow 2pm 30m` — Add event\n"
-        "`/event Yoga every monday 7am` — Recurring\n"
-        "`/event Call with Bob wed 3pm https://zoom.us/j/123` — With location\n"
-        "`/delete <search>` — Delete event by title\n"
-        "`/delete all <search>` — Delete all recurring instances\n"
-        "`/holidays` — Upcoming holidays (3m)\n"
-        "`/holidays 6m` — Upcoming holidays (6m)\n"
-        "`/holidays sync` — Sync Malaysia holidays to calendar\n\n"
-        "📎 Forward a `.ics` file to import events.",
-        parse_mode="Markdown",
-    )
+    now = datetime.now(TZ)
+    args = context.args or []
+
+    # /cal (no args) → today
+    if not args:
+        return await cmd_today(update, context)
+
+    sub = args[0].lower()
+
+    # /cal help
+    if sub in ("help", "--help", "-h"):
+        await update.message.reply_text(_TG_CAL_HELP, parse_mode="Markdown")
+        return
+
+    # /cal week
+    if sub == "week":
+        return await cmd_week(update, context)
+
+    # /cal next
+    if sub == "next":
+        return await cmd_next(update, context)
+
+    # /cal free [date]
+    if sub == "free":
+        context.args = args[1:]
+        return await cmd_free(update, context)
+
+    # /cal holidays [args]
+    if sub == "holidays":
+        context.args = args[1:]
+        return await cmd_holidays(update, context)
+
+    # /cal <number> → agenda
+    try:
+        days_count = int(sub)
+        context.args = [str(max(1, min(days_count, 30)))]
+        return await cmd_agenda(update, context)
+    except ValueError:
+        pass
+
+    # /cal <date> → specific day
+    context.args = args
+    return await cmd_day(update, context)
 
 
 def _format_event_plain(ev: dict) -> str:
@@ -1151,162 +1200,328 @@ def _format_event_plain(ev: dict) -> str:
     return f"  {time_str}  {summary}{location}"
 
 
+async def _cal_today(now, reply):
+    try:
+        cal = _get_client()
+        events = [ev for ev in cal.get_events_today() if ev["end"] > now]
+    except Exception as e:
+        await reply.reply_error(f"CalDAV error: {e}")
+        return
+    if not events:
+        await reply.reply_text("No more events today.")
+        return
+    lines = [f"Today -- {_format_date_header(now.date())}\n"]
+    for ev in sorted(events, key=lambda e: e["start"]):
+        lines.append(_format_event_plain(ev))
+    await reply.reply_text("\n".join(lines))
+
+
+async def _cal_agenda(now, days_count, reply):
+    try:
+        cal = _get_client()
+        events = cal.get_events_range(days=days_count)
+    except Exception as e:
+        await reply.reply_error(f"CalDAV error: {e}")
+        return
+    if not events:
+        await reply.reply_text(f"No events in the next {days_count} days.")
+        return
+    days = {}
+    for ev in sorted(events, key=lambda e: e["start"]):
+        d = ev["start"].date()
+        days.setdefault(d, []).append(ev)
+    lines = [f"Agenda ({days_count} days):\n"]
+    for d in sorted(days):
+        lines.append(f"{_format_date_header(d)}:")
+        for ev in days[d]:
+            lines.append(_format_event_plain(ev))
+    await reply.reply_text("\n".join(lines))
+
+
+async def _cal_day(now, target, reply):
+    if target == now.date():
+        label = "Today"
+    elif target == now.date() + timedelta(days=1):
+        label = "Tomorrow"
+    else:
+        label = _format_date_header(target)
+    try:
+        cal = _get_client()
+        start = datetime(target.year, target.month, target.day, tzinfo=TZ) - timedelta(days=1)
+        end = start + timedelta(days=3)
+        all_events = cal.get_events(start, end)
+        events = [ev for ev in all_events if ev["start"].date() == target]
+    except Exception as e:
+        await reply.reply_error(f"CalDAV error: {e}")
+        return
+    if target == now.date():
+        events = [ev for ev in events if ev["end"] > now]
+    if not events:
+        await reply.reply_text(f"No events on {label}.")
+        return
+    lines = [f"{label} -- {_format_date_header(target)}\n"]
+    for ev in sorted(events, key=lambda e: e["start"]):
+        lines.append(_format_event_plain(ev))
+    await reply.reply_text("\n".join(lines))
+
+
+async def _cal_next(now, reply):
+    try:
+        cal = _get_client()
+        events = cal.get_events_range(days=14)
+    except Exception as e:
+        await reply.reply_error(f"CalDAV error: {e}")
+        return
+    future = [ev for ev in events if ev["start"] > now]
+    if not future:
+        await reply.reply_text("No upcoming events in the next 2 weeks.")
+        return
+    ev = sorted(future, key=lambda e: e["start"])[0]
+    delta = ev["start"] - now
+    if delta.days > 0:
+        time_until = f"in {delta.days}d"
+    else:
+        hours = delta.seconds // 3600
+        mins = (delta.seconds % 3600) // 60
+        time_until = f"in {hours}h{mins}m"
+    lines = [f"Next event ({time_until}):", _format_event_plain(ev)]
+    await reply.reply_text("\n".join(lines))
+
+
+async def _cal_free(now, args, reply):
+    target = now.date()
+    if args:
+        parsed = _parse_date(" ".join(args), now)
+        if parsed:
+            target = parsed
+    try:
+        cal = _get_client()
+        slots = cal.get_free_slots(target)
+    except Exception as e:
+        await reply.reply_error(f"CalDAV error: {e}")
+        return
+    if not slots:
+        await reply.reply_text(f"No free slots on {_format_date_header(target)}.")
+        return
+    lines = [f"Free slots -- {_format_date_header(target)}:\n"]
+    for slot in slots:
+        lines.append(f"  {slot['start'].strftime('%H:%M')}-{slot['end'].strftime('%H:%M')}")
+    await reply.reply_text("\n".join(lines))
+
+
+_CAL_HELP = (
+    "Calendar commands:\n\n"
+    "/cal -- Today's events\n"
+    "/cal <N> -- Next N days\n"
+    "/cal week -- Next 7 days\n"
+    "/cal next -- Next upcoming event\n"
+    "/cal <date> -- Events on a date (e.g. thursday, 25 jun)\n"
+    "/cal free [date] -- Free slots\n"
+    "/cal holidays [3m|6m|1y] -- Upcoming holidays\n"
+    "/cal holidays sync [country] -- Sync holidays\n"
+    "/event <description> -- Add event\n"
+    "/event delete <search> -- Delete event"
+)
+
+
 async def handle_command(msg, reply) -> bool:
     """Platform-agnostic calendar commands."""
+    if msg.command not in ("cal", "event", "today", "day", "week", "next",
+                           "agenda", "free", "delete", "holidays"):
+        return False
+
+    if msg.args and msg.args[0] in ("--help", "-h") and msg.command != "event":
+        await reply.reply_text(__doc__.strip())
+        return True
+
     now = datetime.now(TZ)
 
+    # --- /event (write commands) ---
+    if msg.command == "event":
+        if msg.args and msg.args[0] == "delete":
+            # /event delete <search> → delegate to delete logic
+            msg.args = msg.args[1:]
+            return await _handle_delete(msg, reply)
+        # /event without WA handler — not yet implemented on WA side
+        return False
+
+    # --- /delete (legacy alias) ---
+    if msg.command == "delete":
+        return await _handle_delete(msg, reply)
+
+    # --- Legacy aliases: route old commands into /cal logic ---
     if msg.command == "today":
-        try:
-            cal = _get_client()
-            events = [ev for ev in cal.get_events_today() if ev["end"] > now]
-        except Exception as e:
-            await reply.reply_error(f"CalDAV error: {e}")
-            return True
-
-        if not events:
-            await reply.reply_text("No more events today.")
-            return True
-
-        lines = [f"Today -- {_format_date_header(now.date())}\n"]
-        for ev in sorted(events, key=lambda e: e["start"]):
-            lines.append(_format_event_plain(ev))
-        await reply.reply_text("\n".join(lines))
+        await _cal_today(now, reply)
         return True
-
-    elif msg.command == "week":
-        try:
-            cal = _get_client()
-            events = cal.get_events_range(days=7)
-        except Exception as e:
-            await reply.reply_error(f"CalDAV error: {e}")
-            return True
-
-        if not events:
-            await reply.reply_text("No events this week.")
-            return True
-
-        days = {}
-        for ev in sorted(events, key=lambda e: e["start"]):
-            d = ev["start"].date() if not ev.get("all_day") else ev["start"].date()
-            days.setdefault(d, []).append(ev)
-
-        lines = ["Next 7 days:\n"]
-        for d in sorted(days):
-            lines.append(f"{_format_date_header(d)}:")
-            for ev in days[d]:
-                lines.append(_format_event_plain(ev))
-        await reply.reply_text("\n".join(lines))
+    if msg.command == "day":
+        if msg.args:
+            target = _parse_date(" ".join(msg.args), now)
+            if target:
+                await _cal_day(now, target, reply)
+                return True
+        await reply.reply_text("Usage: /cal <date>  (e.g. thursday, 25 jun)")
         return True
-
-    elif msg.command == "next":
-        try:
-            cal = _get_client()
-            events = cal.get_events_range(days=14)
-        except Exception as e:
-            await reply.reply_error(f"CalDAV error: {e}")
-            return True
-
-        future = [ev for ev in events if ev["start"] > now]
-        if not future:
-            await reply.reply_text("No upcoming events in the next 2 weeks.")
-            return True
-
-        ev = sorted(future, key=lambda e: e["start"])[0]
-        delta = ev["start"] - now
-        if delta.days > 0:
-            time_until = f"in {delta.days}d"
-        else:
-            hours = delta.seconds // 3600
-            mins = (delta.seconds % 3600) // 60
-            time_until = f"in {hours}h{mins}m"
-
-        lines = [f"Next event ({time_until}):", _format_event_plain(ev)]
-        await reply.reply_text("\n".join(lines))
+    if msg.command == "week":
+        await _cal_agenda(now, 7, reply)
         return True
-
-    elif msg.command == "agenda":
+    if msg.command == "next":
+        await _cal_next(now, reply)
+        return True
+    if msg.command == "agenda":
         days_count = 3
         if msg.args:
             try:
                 days_count = int(msg.args[0])
             except ValueError:
                 pass
+        await _cal_agenda(now, days_count, reply)
+        return True
+    if msg.command == "free":
+        await _cal_free(now, msg.args, reply)
+        return True
+    if msg.command == "holidays":
+        # Not yet implemented on WA side
+        return False
 
-        try:
-            cal = _get_client()
-            events = cal.get_events_range(days=days_count)
-        except Exception as e:
-            await reply.reply_error(f"CalDAV error: {e}")
-            return True
+    # --- /cal (unified command) ---
+    args = msg.args or []
 
-        if not events:
-            await reply.reply_text(f"No events in the next {days_count} days.")
-            return True
-
-        days = {}
-        for ev in sorted(events, key=lambda e: e["start"]):
-            d = ev["start"].date()
-            days.setdefault(d, []).append(ev)
-
-        lines = [f"Agenda ({days_count} days):\n"]
-        for d in sorted(days):
-            lines.append(f"{_format_date_header(d)}:")
-            for ev in days[d]:
-                lines.append(_format_event_plain(ev))
-        await reply.reply_text("\n".join(lines))
+    # /cal (no args) → today
+    if not args:
+        await _cal_today(now, reply)
         return True
 
-    elif msg.command == "free":
-        target = now.date()
-        if msg.args:
-            parsed = _parse_date(" ".join(msg.args), now)
-            if parsed:
-                target = parsed
+    sub = args[0].lower()
 
-        try:
-            cal = _get_client()
-            slots = cal.get_free_slots(target)
-        except Exception as e:
-            await reply.reply_error(f"CalDAV error: {e}")
-            return True
-
-        if not slots:
-            await reply.reply_text(f"No free slots on {_format_date_header(target)}.")
-            return True
-
-        lines = [f"Free slots -- {_format_date_header(target)}:\n"]
-        for slot in slots:
-            lines.append(f"  {slot['start'].strftime('%H:%M')}-{slot['end'].strftime('%H:%M')}")
-        await reply.reply_text("\n".join(lines))
+    # /cal --help
+    if sub in ("--help", "-h", "help"):
+        await reply.reply_text(_CAL_HELP)
         return True
 
-    elif msg.command == "cal":
+    # /cal week
+    if sub == "week":
+        await _cal_agenda(now, 7, reply)
+        return True
+
+    # /cal next
+    if sub == "next":
+        await _cal_next(now, reply)
+        return True
+
+    # /cal free [date]
+    if sub == "free":
+        await _cal_free(now, args[1:], reply)
+        return True
+
+    # /cal holidays [args]
+    if sub == "holidays":
+        # Not yet implemented on WA side
+        return False
+
+    # /cal <number> → agenda N days
+    try:
+        days_count = int(sub)
+        await _cal_agenda(now, max(1, min(days_count, 30)), reply)
+        return True
+    except ValueError:
+        pass
+
+    # /cal <date> → specific day
+    target = _parse_date(" ".join(args), now)
+    if target:
+        await _cal_day(now, target, reply)
+        return True
+
+    await reply.reply_text(f"Unknown: {' '.join(args)}\n\n{_CAL_HELP}")
+    return True
+
+
+async def _handle_delete(msg, reply) -> bool:
+    """Handle event deletion (from /delete or /event delete)."""
+    if not msg.args:
         await reply.reply_text(
-            "Calendar commands:\n\n"
-            "/today -- Today's events\n"
-            "/week -- Next 7 days\n"
-            "/next -- Next upcoming event\n"
-            "/agenda [N] -- Next N days\n"
-            "/free [date] -- Free slots\n"
-            "/event <description> -- Add event\n"
-            "/delete <search> -- Delete event"
+            "Usage:\n"
+            "/event delete <search> -- Delete next matching event\n"
+            "/event delete all <search> -- Delete all recurring instances"
         )
         return True
 
-    return False
+    args = list(msg.args)
+    delete_all = args[0].lower() == "all"
+    if delete_all:
+        args = args[1:]
+    if not args:
+        await reply.reply_text("Please provide a search term.")
+        return True
+
+    query = " ".join(args).lower()
+    now = datetime.now(TZ)
+
+    try:
+        cal = _get_client()
+        events = cal.get_events(now, now + timedelta(days=365 if delete_all else 30))
+    except Exception as e:
+        await reply.reply_error(f"CalDAV error: {e}")
+        return True
+
+    matches = [ev for ev in events if query in (ev["summary"] or "").lower()]
+    if not matches:
+        await reply.reply_text(f"No upcoming event matching \"{query}\".")
+        return True
+
+    if delete_all:
+        uids_to_delete = {ev["uid"] for ev in matches}
+    else:
+        uids_to_delete = {matches[0]["uid"]}
+
+    try:
+        calendar = cal.calendar
+        results = calendar.search(
+            start=now, end=now + timedelta(days=365),
+            event=True, expand=False,
+        )
+        deleted_count = 0
+        for item in results:
+            vcal = iCalendar.from_ical(item.data)
+            for component in vcal.walk("VEVENT"):
+                uid = str(component.get("uid", ""))
+                if uid in uids_to_delete:
+                    item.delete()
+                    deleted_count += 1
+                    break
+    except Exception as e:
+        await reply.reply_error(f"Failed to delete: {e}")
+        return True
+
+    if deleted_count == 0:
+        await reply.reply_text("Event found but couldn't delete it from CalDAV.")
+        return True
+
+    if delete_all and len(matches) > 1:
+        await reply.reply_text(f"Deleted {deleted_count} event(s): {matches[0]['summary']} (all recurring)")
+    else:
+        ev = matches[0]
+        await reply.reply_text(
+            f"Deleted: {ev['summary']}\n"
+            f"{ev['start'].strftime('%a %d %b %H:%M')}-{ev['end'].strftime('%H:%M')}"
+        )
+    return True
 
 
 def register(app: Application):
+    # Primary commands
+    app.add_handler(CommandHandler("cal", cmd_cal))
+    app.add_handler(CommandHandler("event", cmd_event))
+
+    # Legacy aliases (kept for transition)
     app.add_handler(CommandHandler("today", cmd_today))
     app.add_handler(CommandHandler("day", cmd_day))
     app.add_handler(CommandHandler("week", cmd_week))
     app.add_handler(CommandHandler("next", cmd_next))
     app.add_handler(CommandHandler("agenda", cmd_agenda))
     app.add_handler(CommandHandler("free", cmd_free))
-    app.add_handler(CommandHandler("event", cmd_event))
     app.add_handler(CommandHandler("delete", cmd_delete))
     app.add_handler(CommandHandler("holidays", cmd_holidays))
-    app.add_handler(CommandHandler("cal", cmd_cal))
 
     # Handle .ics file attachments
     app.add_handler(MessageHandler(filters.Document.ALL, handle_ics_file))

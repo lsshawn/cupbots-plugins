@@ -2,7 +2,7 @@
 Daily Briefing
 
 Commands (works in any topic):
-  /daily  — Today's agenda (same as /agenda 1)
+  /daily  — Today's agenda (same as /cal)
 """
 
 from datetime import datetime, time
@@ -19,7 +19,7 @@ log = get_logger("daily")
 
 
 def build_daily_briefing() -> str:
-    """Build today's agenda (equivalent to /agenda 1)."""
+    """Build today's agenda (equivalent to /cal)."""
     cfg = get_config()
     tz = ZoneInfo(cfg["schedule"]["timezone"])
     now = datetime.now(tz)

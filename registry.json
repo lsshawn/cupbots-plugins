@@ -15,6 +15,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "bookmark",
+        "tagline": "Save, search, and tag links without leaving the chat",
+        "category": "productivity",
+        "long_description": "Never lose a useful link again. Save bookmarks with auto-fetched titles, organize them with hashtags, and search your collection instantly. Perfect for teams that share resources across WhatsApp conversations."
+      },
       "files": [
         "plugins/bookmarks.py"
       ]
@@ -25,16 +31,8 @@
       "version": "1.0.0",
       "author": "CupBots",
       "commands": [
-        "/today",
-        "/day",
-        "/week",
-        "/next",
-        "/agenda",
-        "/free",
-        "/event",
-        "/delete",
-        "/holidays",
-        "/cal"
+        "/cal",
+        "/event"
       ],
       "config": [
         {
@@ -59,6 +57,12 @@
       ],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "calendar_month",
+        "tagline": "Full calendar management from WhatsApp via CalDAV",
+        "category": "productivity",
+        "long_description": "View your agenda, find free slots, and create events using natural language \u2014 all from WhatsApp. Supports recurring events, ICS imports, holiday syncing, and integrates with any CalDAV server like Radicale or Nextcloud."
+      },
       "files": [
         "plugins/calendar_plugin.py"
       ]
@@ -79,6 +83,12 @@
       ],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "today",
+        "tagline": "Automated daily briefings and upcoming event reminders",
+        "category": "productivity",
+        "long_description": "Start your day prepared with calendar briefings delivered straight to WhatsApp. Get tonight and tomorrow previews, week-ahead summaries, and automatic reminders before upcoming events so nothing slips through the cracks."
+      },
       "files": [
         "plugins/calendar_briefing.py"
       ]
@@ -121,6 +131,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "contacts",
+        "tagline": "Personal CRM with tiered contacts and follow-up reminders",
+        "category": "productivity",
+        "long_description": "Track your professional network right from WhatsApp. Add contacts, assign importance tiers, log interactions, and get nudged when it's time to follow up. Fuzzy name search and tagging make it easy to find anyone in seconds."
+      },
       "files": [
         "plugins/contacts.py"
       ]
@@ -136,6 +152,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "wb_sunny",
+        "tagline": "Get your daily agenda delivered every morning",
+        "category": "productivity",
+        "long_description": "Receive a clean summary of today's calendar events each morning in WhatsApp. No need to open your calendar app \u2014 your agenda comes to you so you can plan your day at a glance."
+      },
       "files": [
         "plugins/daily_briefing.py"
       ]
@@ -175,31 +197,46 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "lightbulb",
+        "tagline": "Capture ideas the moment they strike, review later",
+        "category": "productivity",
+        "long_description": "Don't let good ideas slip away. Jot down thoughts instantly from WhatsApp and review them organized by year. Great for founders and creators who need a frictionless way to build an idea backlog."
+      },
       "files": [
         "plugins/ideas.py"
       ]
     },
-    "image_gen": {
-      "name": "image_gen",
-      "description": "Generate images using Gemini",
+    "knowledgebase": {
+      "name": "knowledgebase",
+      "description": "Upload documents and search them with AI \u2014 PDF, DOCX, TXT supported. Replaces FAQ with semantic search.",
       "version": "1.0.0",
       "author": "CupBots",
       "commands": [
-        "/img"
+        "/knowledgebase",
+        "/kb"
       ],
       "config": [
         {
-          "key": "GEMINI_API_KEY",
-          "label": "Google Gemini API Key",
+          "key": "CHUNKER_API_KEY",
+          "label": "Chunker API Key",
           "type": "secret",
           "required": true,
-          "help": "Get your API key at https://aistudio.google.com/apikey"
+          "help": "API key for the Chunker RAG service"
         }
       ],
-      "free": true,
-      "bundled": true,
+      "free": false,
+      "price": "$29",
+      "price_type": "monthly",
+      "bundled": false,
+      "marketplace": {
+        "icon": "menu_book",
+        "tagline": "Turn your docs into an instant AI knowledge base",
+        "category": "productivity",
+        "long_description": "Upload PDFs, Word docs, and text files to build a searchable knowledge base for your group. Ask questions in plain language and get AI-powered answers with source citations. Tag documents for organized filtering. Enable auto-answer mode and the bot proactively answers member questions from your uploaded documents \u2014 like having a support agent that actually read the manual."
+      },
       "files": [
-        "plugins/image_gen.py"
+        "plugins/knowledgebase.py"
       ]
     },
     "launchpad": {
@@ -234,8 +271,66 @@
         }
       ],
       "bundled": false,
+      "marketplace": {
+        "icon": "rocket_launch",
+        "tagline": "Deploy landing pages from WhatsApp in minutes",
+        "category": "developer",
+        "long_description": "Describe your landing page in plain text and get a live site deployed instantly. Edit headlines, swap sections, connect custom domains, and check analytics \u2014 all without leaving WhatsApp. Ideal for launching MVPs and marketing pages fast."
+      },
       "files": [
         "plugins/launchpad.py"
+      ]
+    },
+    "mailwatch": {
+      "name": "mailwatch",
+      "description": "Watch email inboxes and process messages with rules \u2014 keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/mailwatch"
+      ],
+      "config": [
+        {
+          "key": "MAILWATCH_IMAP_HOST",
+          "label": "IMAP Host",
+          "type": "text",
+          "required": true,
+          "help": "e.g. imap.gmail.com"
+        },
+        {
+          "key": "MAILWATCH_EMAIL",
+          "label": "Email Address",
+          "type": "text",
+          "required": true,
+          "help": "The mailbox email address to watch"
+        },
+        {
+          "key": "MAILWATCH_APP_PASSWORD",
+          "label": "Email App Password",
+          "type": "secret",
+          "required": true,
+          "help": "Gmail: myaccount.google.com/apppasswords"
+        },
+        {
+          "key": "MAILWATCH_NOTIFY_CHAT",
+          "label": "WhatsApp Notification Chat",
+          "type": "text",
+          "required": true,
+          "help": "WhatsApp JID to send notifications to"
+        }
+      ],
+      "free": false,
+      "price": "$29",
+      "price_type": "monthly",
+      "bundled": false,
+      "marketplace": {
+        "icon": "mail",
+        "tagline": "Turn your inbox into an automation engine",
+        "category": "productivity",
+        "long_description": "Watch your email inbox and process messages automatically based on rules you define. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
+      },
+      "files": [
+        "plugins/mailwatch.py"
       ]
     },
     "mdpubs": {
@@ -261,6 +356,12 @@
       ],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "publish",
+        "tagline": "Publish markdown notes to the web from WhatsApp",
+        "category": "productivity",
+        "long_description": "Turn WhatsApp messages into published web pages on mdpubs.com. Write in markdown, add tags, and share a public link instantly. Perfect for quick blog posts, meeting notes, or internal knowledge base articles."
+      },
       "files": [
         "pb_migrations/1712000001_mdpubs_notes.js",
         "plugins/mdpubs_plugin.py"
@@ -278,8 +379,43 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "edit_note",
+        "tagline": "Create Zettelkasten-style notes from WhatsApp",
+        "category": "productivity",
+        "long_description": "Capture thoughts as structured markdown notes in Zettelkasten format. Each note gets a timestamped filename and frontmatter, ready for your PKM workflow. Browse recent notes without leaving the chat."
+      },
       "files": [
         "plugins/note.py"
+      ]
+    },
+    "notion": {
+      "name": "notion",
+      "description": "Connect Notion pages and databases to WhatsApp",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/notion"
+      ],
+      "config": [
+        {
+          "key": "NOTION_API_KEY",
+          "label": "Notion Integration Token",
+          "type": "secret",
+          "required": true,
+          "help": "Create at notion.so/my-integrations"
+        }
+      ],
+      "free": true,
+      "bundled": true,
+      "marketplace": {
+        "icon": "link",
+        "tagline": "Read, update, and sync Notion databases from WhatsApp",
+        "category": "productivity",
+        "long_description": "Connect your Notion workspace to WhatsApp. Link databases and pages, search and update entries, and schedule automatic summaries. Perfect for CRM lookups, meeting notes, and weekly huddle digests."
+      },
+      "files": [
+        "plugins/notion.py"
       ]
     },
     "onboarding": {
@@ -293,8 +429,37 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "waving_hand",
+        "tagline": "Automated welcome messages and onboarding for new members",
+        "category": "communication",
+        "long_description": "Greet new group members automatically with custom welcome messages, group rules, and optional DM introductions. Configure delays, enable self-introductions, and preview everything with a guided setup wizard."
+      },
       "files": [
         "plugins/onboarding.py"
+      ]
+    },
+    "reddit": {
+      "name": "reddit",
+      "description": "AI-curated daily digest from your tracked subreddits \u2014 actionable insights, tech trends, and fun finds",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/reddit"
+      ],
+      "config": [],
+      "free": false,
+      "price": "$19",
+      "price_type": "monthly",
+      "bundled": false,
+      "marketplace": {
+        "icon": "forum",
+        "tagline": "AI-curated Reddit digest delivered to your chat",
+        "category": "media",
+        "long_description": "Track subreddits by category (signal, tech, finance, fun) and get a daily AI-curated digest delivered to WhatsApp. The AI extracts actionable business insights from startup subs, highlights notable tech launches, and picks the best fun posts \u2014 so you get the signal without the scroll. Pair with /schedule for automated daily delivery."
+      },
+      "files": [
+        "plugins/reddit.py"
       ]
     },
     "remind": {
@@ -309,6 +474,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "alarm",
+        "tagline": "Set reminders with natural language like '2h' or 'friday 3pm'",
+        "category": "productivity",
+        "long_description": "Never forget a follow-up again. Set reminders using natural time expressions \u2014 relative (30m, 2h, 1d) or absolute (friday 3pm, march 25). List and manage pending reminders from any chat."
+      },
       "files": [
         "plugins/remind.py"
       ]
@@ -327,6 +498,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "search",
+        "tagline": "Search Reddit, YouTube, and X from one command",
+        "category": "productivity",
+        "long_description": "Run research across multiple platforms without switching apps. Search Reddit, YouTube, and X/Twitter simultaneously or individually and get results summarized right in your chat. Great for market research and trend tracking."
+      },
       "files": [
         "plugins/search.py"
       ]
@@ -347,6 +524,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "payments",
+        "tagline": "Auto-invite Stripe customers to your WhatsApp community",
+        "category": "finance",
+        "long_description": "Connect Stripe to your WhatsApp community for automated onboarding. When a customer pays, they automatically receive a WhatsApp DM with your community invite link. Monitor subscriber stats and test the flow from chat."
+      },
       "files": [
         "plugins/stripe.py"
       ]
@@ -362,6 +545,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "cloud_upload",
+        "tagline": "Auto-save files, photos, and videos sent to any group",
+        "category": "productivity",
+        "long_description": "Every file shared in the group is automatically saved and organized. Specify a folder in the caption to sort files on the fly. Browse recent uploads anytime with a single command."
+      },
       "files": [
         "plugins/upload.py"
       ]
@@ -385,6 +574,12 @@
       ],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "chat",
+        "tagline": "Read, reply, search, and summarize WhatsApp from your bot",
+        "category": "communication",
+        "long_description": "Manage your WhatsApp inbox without picking up your phone. Read recent messages, reply to conversations, search across all chats, and get AI-powered summaries. Includes QR pairing and reconnect controls."
+      },
       "files": [
         "plugins/whatsapp.py"
       ]
@@ -413,8 +608,52 @@
       ],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "schedule_send",
+        "tagline": "Schedule WhatsApp messages with natural language timing",
+        "category": "communication",
+        "long_description": "Type who, what, and when in plain English and the bot handles the rest. Schedule messages to any contact or group using AI-parsed time expressions. List and cancel pending messages anytime."
+      },
       "files": [
         "plugins/whatsapp_schedule.py"
+      ]
+    },
+    "xdigest": {
+      "name": "xdigest",
+      "description": "AI market intelligence from your X/Twitter list \u2014 product signals, business ideas, distribution levers",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/xdigest"
+      ],
+      "config": [
+        {
+          "key": "XDIGEST_LIST_ID",
+          "label": "X List ID",
+          "type": "text",
+          "required": true,
+          "help": "The numeric ID of your X list (from the list URL)"
+        },
+        {
+          "key": "XDIGEST_COOKIES",
+          "label": "X Browser Cookies (JSON)",
+          "type": "secret",
+          "required": true,
+          "help": "Playwright storage_state JSON \u2014 export from 'Get cookies.txt LOCALLY' extension"
+        }
+      ],
+      "free": false,
+      "price": "$29",
+      "price_type": "monthly",
+      "bundled": false,
+      "marketplace": {
+        "icon": "trending_up",
+        "tagline": "Turn your X feed into a market intelligence briefing",
+        "category": "media",
+        "long_description": "Point it at any X/Twitter list and get an AI-generated market opportunity map. The analysis identifies product launches with real traction, extracts business ideas from builder complaints, maps distribution channels, and surfaces contrarian takes most founders miss. Five-lens framework: Product Intelligence, Business Ideas, Distribution Playbook, Friction Map, and Mental Models."
+      },
+      "files": [
+        "plugins/xdigest.py"
       ]
     },
     "youtube": {
@@ -428,6 +667,12 @@
       "config": [],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "smart_display",
+        "tagline": "Get AI summaries of any YouTube video in seconds",
+        "category": "media",
+        "long_description": "Paste a YouTube link and get a full transcript extracted and summarized by Claude. Ask follow-up questions about the video content. Ideal for quickly digesting long talks, tutorials, and interviews without watching."
+      },
       "files": [
         "plugins/youtube.py"
       ]

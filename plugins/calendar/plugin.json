@@ -3,7 +3,7 @@
   "description": "Calendar management via CalDAV",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/today", "/day", "/week", "/next", "/agenda", "/free", "/event", "/delete", "/holidays", "/cal"],
+  "commands": ["/cal", "/event"],
   "config": [
     {
       "key": "CALDAV_URL",
