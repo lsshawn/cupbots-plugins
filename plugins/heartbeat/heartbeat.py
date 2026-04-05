@@ -24,7 +24,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from cupbots.config import get_config, get_scripts_dir, get_data_dir
-from cupbots.helpers.db import get_db
+from cupbots.helpers.db import get_plugin_db
 from cupbots.helpers.logger import get_logger
 from cupbots.helpers.llm import run_claude_cli
 
@@ -90,7 +90,7 @@ def _gather_calendar(tz: ZoneInfo) -> str:
 
 def _gather_contacts() -> str:
     """Overdue contacts and upcoming check-ins."""
-    conn = get_db()
+    conn = get_plugin_db("contacts")
     today = datetime.now().strftime("%Y-%m-%d")
 
     overdue = conn.execute(
@@ -111,7 +111,7 @@ def _gather_contacts() -> str:
         (today, week_ahead),
     ).fetchall()
 
-    conn.close()
+    # conn is shared — never close it
 
     lines = []
     if overdue:
@@ -159,11 +159,11 @@ def _gather_pipelines() -> str:
 
 def _gather_reminders() -> str:
     """Pending reminders."""
-    conn = get_db()
+    conn = get_plugin_db("contacts")
     rows = conn.execute(
         "SELECT message, fire_at FROM reminders WHERE fired = 0 ORDER BY fire_at LIMIT 5"
     ).fetchall()
-    conn.close()
+    # conn is shared — never close it
 
     if not rows:
         return "No pending reminders."
@@ -221,7 +221,7 @@ def _gather_receivables() -> str:
 
 def _gather_bot_errors() -> str:
     """Recent bot errors (last 24h)."""
-    conn = get_db()
+    conn = get_plugin_db("contacts")
     cutoff = (datetime.now() - timedelta(hours=24)).isoformat()
     rows = conn.execute(
         """SELECT timestamp, logger, message FROM bot_logs
@@ -229,7 +229,7 @@ def _gather_bot_errors() -> str:
            ORDER BY timestamp DESC LIMIT 5""",
         (cutoff,),
     ).fetchall()
-    conn.close()
+    # conn is shared — never close it
 
     if not rows:
         return "No errors in the last 24 hours."

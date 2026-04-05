@@ -258,7 +258,7 @@ async def _action_notify(email_data: dict, rule: dict, company_id: str):
         log.warning("No notify chat configured")
         return
     summary = (
-        f"Mailwatch [{rule['name'] or f'rule #{rule[\"id\"]}'}]\n"
+        f"Mailwatch [{rule['name'] or 'rule #' + str(rule['id'])}]\n"
         f"From: {email_data['sender']}\n"
         f"Subject: {email_data['subject']}\n"
         f"\n{email_data['body_text'][:500]}"
