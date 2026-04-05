@@ -1,7 +1,7 @@
 """
-Finance Reports — Beancount financial reports
+Finance Reports — Beancount financial reports.
 
-Commands (scoped to finance topic thread):
+Commands:
   /pnl [personal] [period]        — Profit & Loss (jan, q1, ytd, last-3m, 2025, 2025-03...)
   /bs [personal] [date]           — Balance Sheet
   /cashflow [personal] [period]   — Cash flow summary (same periods as /pnl)
@@ -15,21 +15,17 @@ Commands (scoped to finance topic thread):
 
 import json
 import sys
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
-from telegram import Update
-from telegram.constants import ChatAction
-from telegram.ext import Application, ContextTypes
-
-from cupbots.topic_filter import topic_command
 from cupbots.helpers.logger import get_logger
+from cupbots.helpers.access import is_admin
 from plugins._finance_helpers import (
     FINANCES_DIR,
     OPERATING_CURRENCY,
     PERIOD_HELP,
-    get_finance_thread_id,
     load_beancount,
     parse_date_range,
     parse_ledger_and_args,
@@ -40,308 +36,7 @@ from plugins._finance_helpers import (
 
 log = get_logger("finance.reports")
 
-
-async def cmd_pnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Profit & Loss report."""
-    if not update.message:
-        return
-    args = context.args or []
-    ledger_type, rest = parse_ledger_and_args(args)
-    start, end, _ = parse_date_range(rest)
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    try:
-        bql = (
-            f"SELECT account, sum(convert(position, '{OPERATING_CURRENCY}')) AS total "
-            f"WHERE (account ~ 'Income' OR account ~ 'Expenses') "
-            f"AND date >= {start} AND date < {end} "
-            f"GROUP BY account ORDER BY account"
-        )
-        result_types, result_rows = run_bql_raw(ledger_type, bql)
-
-        income_lines = []
-        expense_lines = []
-        total_income = Decimal("0")
-        total_expenses = Decimal("0")
-
-        for row in result_rows:
-            account = str(row[0])
-            # Sum up amounts from inventory
-            amount = _sum_eur_from_inventory(row[1])
-            if account.startswith("Income"):
-                income_lines.append((account, amount))
-                total_income += amount
-            elif account.startswith("Expenses"):
-                expense_lines.append((account, amount))
-                total_expenses += amount
-
-        net = -total_income - total_expenses  # Income is negative in beancount
-
-        lines = [
-            f"P&L ({ledger_type}) — {start} to {end}",
-            "=" * 55,
-            "",
-            "INCOME",
-            "-" * 55,
-        ]
-        for acct, amt in income_lines:
-            lines.append(f"  {acct:<45} {-amt:>10,.2f}")
-        lines.append(f"  {'TOTAL INCOME':<45} {-total_income:>10,.2f} {OPERATING_CURRENCY}")
-        lines.extend(["", "EXPENSES", "-" * 55])
-        for acct, amt in expense_lines:
-            lines.append(f"  {acct:<45} {amt:>10,.2f}")
-        lines.append(f"  {'TOTAL EXPENSES':<45} {total_expenses:>10,.2f} {OPERATING_CURRENCY}")
-        lines.extend([
-            "",
-            "=" * 55,
-            f"  {'NET INCOME':<45} {net:>10,.2f} {OPERATING_CURRENCY}",
-            "",
-            PERIOD_HELP,
-        ])
-
-        await send_long_text(update, context, "\n".join(lines), "pnl.txt")
-    except Exception as e:
-        log.error("P&L failed: %s", e)
-        await update.message.reply_text(f"Error: {e}")
-
-
-async def cmd_bs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Balance Sheet."""
-    if not update.message:
-        return
-    args = context.args or []
-    ledger_type, rest = parse_ledger_and_args(args)
-    as_of = rest[0] if rest else date.today().isoformat()
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    try:
-        bql = (
-            f"SELECT account, sum(position) "
-            f"WHERE date <= {as_of} "
-            f"GROUP BY account ORDER BY account"
-        )
-        result_types, result_rows = run_bql_raw(ledger_type, bql)
-
-        sections = {"Assets": [], "Liabilities": [], "Equity": [], "Income": [], "Expenses": []}
-        for row in result_rows:
-            account = str(row[0])
-            inv_str = _format_inventory(row[1])
-            if not inv_str or inv_str == "0":
-                continue
-            for prefix in sections:
-                if account.startswith(prefix):
-                    sections[prefix].append((account, inv_str))
-                    break
-
-        lines = [
-            f"Balance Sheet ({ledger_type}) — as of {as_of}",
-            "=" * 60,
-        ]
-
-        for section in ["Assets", "Liabilities", "Equity"]:
-            lines.extend(["", section.upper(), "-" * 60])
-            if sections[section]:
-                for acct, bal in sections[section]:
-                    lines.append(f"  {acct:<45} {bal:>12}")
-            else:
-                lines.append("  (none)")
-
-        await send_long_text(update, context, "\n".join(lines), "bs.txt")
-    except Exception as e:
-        log.error("Balance sheet failed: %s", e)
-        await update.message.reply_text(f"Error: {e}")
-
-
-async def cmd_cashflow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cash flow summary."""
-    if not update.message:
-        return
-    args = context.args or []
-    ledger_type, rest = parse_ledger_and_args(args)
-    start, end, _ = parse_date_range(rest)
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    try:
-        bql = (
-            f"SELECT account, sum(convert(position, '{OPERATING_CURRENCY}')) AS total "
-            f"WHERE account ~ 'Assets:Cash' "
-            f"AND date >= {start} AND date < {end} "
-            f"GROUP BY account ORDER BY account"
-        )
-        result_types, result_rows = run_bql_raw(ledger_type, bql)
-
-        total = Decimal("0")
-        lines = [
-            f"Cash Flow ({ledger_type}) — {start} to {end}",
-            "=" * 55,
-            "",
-        ]
-        for row in result_rows:
-            account = str(row[0])
-            amount = _sum_eur_from_inventory(row[1])
-            if abs(amount) > Decimal("0.01"):
-                lines.append(f"  {account:<45} {amount:>10,.2f}")
-                total += amount
-
-        lines.extend([
-            "",
-            "-" * 55,
-            f"  {'NET CASH MOVEMENT':<45} {total:>10,.2f} {OPERATING_CURRENCY}",
-            "",
-            PERIOD_HELP,
-        ])
-
-        await send_long_text(update, context, "\n".join(lines), "cashflow.txt")
-    except Exception as e:
-        log.error("Cashflow failed: %s", e)
-        await update.message.reply_text(f"Error: {e}")
-
-
-async def cmd_fxgain(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """FX gain/loss report."""
-    if not update.message:
-        return
-    args = context.args or []
-    ledger_type, rest = parse_ledger_and_args(args)
-    target_date = rest[0] if rest else date.today().isoformat()
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    sys.path.insert(0, str(FINANCES_DIR / "scripts"))
-    try:
-        from calculate_currency_gain import get_final_aggregated_report
-        import io
-        from contextlib import redirect_stdout
-
-        journal = str(FINANCES_DIR / ledger_type / "journal.beancount")
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            get_final_aggregated_report(journal, target_date)
-        output = buf.getvalue()
-
-        await send_long_text(update, context, output, "fxgain.txt")
-    except Exception as e:
-        log.error("FX gain report failed: %s", e)
-        await update.message.reply_text(f"Error: {e}")
-    finally:
-        scripts_path = str(FINANCES_DIR / "scripts")
-        if scripts_path in sys.path:
-            sys.path.remove(scripts_path)
-
-
-async def cmd_receivables(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Outstanding receivables broken down by client."""
-    if not update.message:
-        return
-    args = context.args or []
-    ledger_type, _ = parse_ledger_and_args(args)
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    try:
-        from collections import defaultdict
-
-        # Net balance per payee
-        bal_bql = (
-            "SELECT payee, sum(position) AS balance "
-            "WHERE account ~ 'Receivable' "
-            "GROUP BY payee ORDER BY sum(position)"
-        )
-        _, bal_rows = run_bql_raw(ledger_type, bal_bql)
-
-        # All receivable postings (filter positive in Python)
-        detail_bql = (
-            "SELECT date, payee, narration, position "
-            "WHERE account ~ 'Receivable' "
-            "ORDER BY payee, date"
-        )
-        _, detail_rows = run_bql_raw(ledger_type, detail_bql)
-
-        # Parse net balances per payee — skip zero balances
-        client_net: dict[str, Decimal] = {}
-        client_currency: dict[str, str] = {}
-        for row in bal_rows:
-            payee = str(row[0]) if row[0] else "Unknown"
-            amt, cur = _parse_position(row[1])
-            if amt != 0:
-                client_net[payee] = amt
-                client_currency[payee] = cur
-
-        if not client_net:
-            await update.message.reply_text(f"No outstanding receivables ({ledger_type}).")
-            return
-
-        # Match unpaid invoices to remaining balance per payee
-        # Walk invoices newest-first, accumulate until we reach the net balance
-        by_client: dict[str, list[tuple]] = defaultdict(list)
-        for row in detail_rows:
-            tx_date = str(row[0])
-            payee = str(row[1]) if row[1] else "Unknown"
-            narration = str(row[2]) if row[2] else ""
-            amt, cur = _parse_position(row[3])
-            if payee in client_net and amt > 0:
-                by_client[payee].append((tx_date, amt, cur, narration))
-
-        # For each client, keep only the newest invoices that sum to the net balance
-        for payee in list(by_client.keys()):
-            entries = sorted(by_client[payee], key=lambda e: e[0], reverse=True)
-            net = client_net[payee]
-            kept = []
-            running = Decimal("0")
-            for entry in entries:
-                if running >= net:
-                    break
-                kept.append(entry)
-                running += entry[1]
-            by_client[payee] = sorted(kept, key=lambda e: e[0])
-
-        # Format output
-        lines = [f"Outstanding Receivables ({ledger_type})", "=" * 40, ""]
-        grand_total = Decimal("0")
-
-        for payee in sorted(client_net.keys(), key=lambda c: client_net[c], reverse=True):
-            net = client_net[payee]
-            cur = client_currency[payee]
-            grand_total += net
-
-            lines.append(f"{payee}  ({net:,.2f} {cur})")
-            for tx_date, amt, c, narr in by_client.get(payee, []):
-                age = (date.today() - date.fromisoformat(tx_date)).days
-                lines.append(f"  {tx_date}  {amt:>10,.2f} {c}  {narr}  ({age}d)")
-            lines.append("")
-
-        lines.append(f"Grand total: {grand_total:,.2f}")
-
-        await send_long_text(update, context, "\n".join(lines), "receivables.txt")
-    except Exception as e:
-        log.error("Receivables query failed: %s", e)
-        await update.message.reply_text(f"Error: {e}")
-
-
-async def cmd_payables(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Outstanding liabilities."""
-    if not update.message:
-        return
-    args = context.args or []
-    ledger_type, _ = parse_ledger_and_args(args)
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    try:
-        result = run_bql(
-            ledger_type,
-            "SELECT account, sum(position) "
-            "WHERE account ~ 'Liabilities' "
-            "GROUP BY account ORDER BY account",
-        )
-        header = f"Payables ({ledger_type})"
-        await send_long_text(update, context, f"{header}\n{'=' * len(header)}\n\n{result}", "payables.txt")
-    except Exception as e:
-        log.error("Payables query failed: %s", e)
-        await update.message.reply_text(f"Error: {e}")
+COMMANDS = ("pnl", "bs", "cashflow", "fxgain", "receivables", "payables", "annualreport", "taxrelief", "taxsummary")
 
 
 # --- Helpers ---
@@ -818,48 +513,6 @@ def _build_annual_notes(year: int, ledger_type: str = "cupbots") -> dict:
     }
 
 
-async def cmd_annualreport(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Annual report — balance sheet + P&L."""
-    if not update.message:
-        return
-
-    args = context.args or []
-    ledger_type, rest = parse_ledger_and_args(args)
-    year = int(rest[0]) if rest and rest[0].isdigit() else date.today().year - 1
-
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    try:
-        report = _build_annual_report(year, ledger_type)
-        notes = _build_annual_notes(year, ledger_type)
-        msg = update.message
-        thread_id = msg.message_thread_id
-
-        # Build markdown and publish to mdpubs (with fallback to inline)
-        from plugins.mdpubs_plugin import publish_or_fallback
-        company = ledger_type.upper() if ledger_type != "cupbots" else "CUPBOTS OÜ"
-        title = f"{company} — Annual Report {year}"
-        md = _report_to_markdown(report, company, year, notes=notes)
-        key = f"annual-report-{ledger_type}-{year}"
-        url, content = await publish_or_fallback(key, title, md, tags=["finance", f"annual-report-{year}"])
-
-        if url:
-            await context.bot.send_message(
-                chat_id=msg.chat_id,
-                text=f"📊 {title}\n{url}",
-                message_thread_id=thread_id,
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=msg.chat_id,
-                text=f"📊 {title}\n\n{content[:4000]}",
-                message_thread_id=thread_id,
-            )
-    except Exception as e:
-        log.error("Annual report failed: %s", e)
-        await update.message.reply_text(f"Error: {e}")
-
-
 def _load_balance_sheet_config(ledger_type: str) -> dict:
     """Load accountant-approved balance sheet figures."""
     config_path = FINANCES_DIR / ledger_type / "annual-report" / "balance_sheet.json"
@@ -1305,77 +958,6 @@ LHDN_RELIEF_LIMITS = {
 }
 
 
-async def cmd_taxrelief(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Malaysian tax relief summary for personal ledger."""
-    if not update.message:
-        return
-
-    args = context.args or []
-    year = date.today().year
-    if args and args[0].isdigit() and len(args[0]) == 4:
-        year = int(args[0])
-
-    await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=ChatAction.TYPING,
-    )
-
-    try:
-        # Get explicit Expenses:Tax:* claims
-        bql = (
-            f"SELECT account, sum(convert(position, 'MYR')) AS total "
-            f"WHERE account ~ 'Expenses:Tax' "
-            f"AND date >= {year}-01-01 AND date < {year + 1}-01-01 "
-            f"GROUP BY account ORDER BY account"
-        )
-        result_types, result_rows = run_bql_raw("personal", bql)
-
-        totals: dict[str, Decimal] = {}
-        for row in result_rows:
-            account = str(row[0])
-            amount = _sum_myr_from_inventory(row[1])
-            totals[account] = amount
-
-        # Auto-detect SOCSO employee contributions from salary entries
-        socso_bql = (
-            f"SELECT sum(convert(position, 'MYR')) AS total "
-            f"WHERE account = 'Assets:SocialSecurity:SOCSO' "
-            f"AND date >= {year}-01-01 AND date < {year + 1}-01-01 "
-            f"AND narration ~ 'Salary'"
-        )
-        socso_types, socso_rows = run_bql_raw("personal", socso_bql)
-        if socso_rows and socso_rows[0][0]:
-            socso_from_salary = _sum_myr_from_inventory(socso_rows[0][0])
-            existing_socso = totals.get("Expenses:Tax:SOCSO", Decimal("0"))
-            if socso_from_salary > existing_socso:
-                totals["Expenses:Tax:SOCSO"] = socso_from_salary
-
-        lines = [f"🇲🇾 *LHDN Tax Relief — {year}*", ""]
-
-        grand_total = Decimal("0")
-        for account, (label, limit) in LHDN_RELIEF_LIMITS.items():
-            spent = totals.get(account, Decimal("0"))
-            grand_total += spent
-            if limit:
-                remaining = max(Decimal("0"), limit - spent)
-                bar = "█" * min(10, int(spent / limit * 10)) + "░" * max(0, 10 - int(spent / limit * 10))
-                pct = min(spent / limit * 100, Decimal("100"))
-                lines.append(
-                    f"`{bar}` {label}\n"
-                    f"  RM {spent:,.0f} / RM {limit:,.0f} ({pct:.0f}%) — RM {remaining:,.0f} left"
-                )
-            else:
-                lines.append(f"`{'█' * min(10, 1 if spent else 0):░<10}` {label}\n  RM {spent:,.0f} (no cap)")
-            lines.append("")
-
-        lines.append(f"*Total claimed: RM {grand_total:,.0f}*")
-
-        await send_long_text(update, context, "\n".join(lines), parse_mode="Markdown")
-
-    except Exception as e:
-        log.error("Tax relief report failed: %s", e)
-        await update.message.reply_text(f"❌ Error: {e}")
-
-
 # Malaysian tax brackets (2025 YA)
 MY_TAX_BRACKETS = [
     (Decimal("5000"), Decimal("0")),
@@ -1406,169 +988,6 @@ def _calc_my_tax(chargeable: Decimal) -> Decimal:
     return tax
 
 
-async def cmd_taxsummary(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Malaysian income tax summary for BE form filing."""
-    if not update.message:
-        return
-
-    args = context.args or []
-    year = date.today().year
-    if args and args[0].isdigit() and len(args[0]) == 4:
-        year = int(args[0])
-
-    await context.bot.send_chat_action(
-        chat_id=update.effective_chat.id, action=ChatAction.TYPING,
-    )
-
-    try:
-        date_filter = f"date >= {year}-01-01 AND date < {year + 1}-01-01"
-
-        # 1. Employment income (CGPT gross salary)
-        emp_bql = (
-            f"SELECT sum(convert(position, 'MYR')) AS total "
-            f"WHERE account = 'Income:Clients:CGPT' AND {date_filter}"
-        )
-        _, emp_rows = run_bql_raw("personal", emp_bql)
-        gross_employment = abs(_sum_myr_from_inventory(emp_rows[0][0])) if emp_rows and emp_rows[0][0] else Decimal("0")
-
-        # 2. Employer benefits (non-taxable, just for info)
-        ben_bql = (
-            f"SELECT sum(convert(position, 'MYR')) AS total "
-            f"WHERE account = 'Income:Employer:Benefits' AND {date_filter}"
-        )
-        _, ben_rows = run_bql_raw("personal", ben_bql)
-        employer_benefits = abs(_sum_myr_from_inventory(ben_rows[0][0])) if ben_rows and ben_rows[0][0] else Decimal("0")
-
-        # 3. Other income (all Income:* except CGPT and Employer:Benefits)
-        other_bql = (
-            f"SELECT account, sum(convert(position, 'MYR')) AS total "
-            f"WHERE account ~ 'Income' AND account != 'Income:Clients:CGPT' "
-            f"AND account != 'Income:Employer:Benefits' AND {date_filter} "
-            f"GROUP BY account ORDER BY account"
-        )
-        other_types, other_rows = run_bql_raw("personal", other_bql)
-        other_income_lines = []
-        total_other = Decimal("0")
-        for row in other_rows:
-            acc = str(row[0])
-            amt = abs(_sum_myr_from_inventory(row[1]))
-            if amt > 0:
-                short_name = acc.replace("Income:", "")
-                other_income_lines.append((short_name, amt))
-                total_other += amt
-
-        # 4. Statutory deductions from salary
-        # EPF employee contribution
-        epf_bql = (
-            f"SELECT sum(convert(position, 'MYR')) AS total "
-            f"WHERE account = 'Assets:Retirement:EPF' AND {date_filter} "
-            f"AND narration ~ 'Salary'"
-        )
-        _, epf_rows = run_bql_raw("personal", epf_bql)
-        epf_employee = _sum_myr_from_inventory(epf_rows[0][0]) if epf_rows and epf_rows[0][0] else Decimal("0")
-
-        # SOCSO employee contribution
-        socso_bql = (
-            f"SELECT sum(convert(position, 'MYR')) AS total "
-            f"WHERE account = 'Assets:SocialSecurity:SOCSO' AND {date_filter} "
-            f"AND narration ~ 'Salary'"
-        )
-        _, socso_rows = run_bql_raw("personal", socso_bql)
-        socso_employee = _sum_myr_from_inventory(socso_rows[0][0]) if socso_rows and socso_rows[0][0] else Decimal("0")
-
-        # EIS employee contribution
-        eis_bql = (
-            f"SELECT sum(convert(position, 'MYR')) AS total "
-            f"WHERE account = 'Assets:SocialSecurity:EIS' AND {date_filter} "
-            f"AND narration ~ 'Salary'"
-        )
-        _, eis_rows = run_bql_raw("personal", eis_bql)
-        eis_employee = _sum_myr_from_inventory(eis_rows[0][0]) if eis_rows and eis_rows[0][0] else Decimal("0")
-
-        # PCB tax withheld
-        pcb_bql = (
-            f"SELECT sum(convert(position, 'MYR')) AS total "
-            f"WHERE account = 'Liabilities:Tax' AND {date_filter}"
-        )
-        _, pcb_rows = run_bql_raw("personal", pcb_bql)
-        pcb_withheld = _sum_myr_from_inventory(pcb_rows[0][0]) if pcb_rows and pcb_rows[0][0] else Decimal("0")
-
-        # 5. Tax relief (Expenses:Tax:*)
-        relief_bql = (
-            f"SELECT account, sum(convert(position, 'MYR')) AS total "
-            f"WHERE account ~ 'Expenses:Tax' AND {date_filter} "
-            f"GROUP BY account ORDER BY account"
-        )
-        _, relief_rows = run_bql_raw("personal", relief_bql)
-        relief_items = []
-        total_relief = Decimal("0")
-        for row in relief_rows:
-            acc = str(row[0])
-            amt = _sum_myr_from_inventory(row[1])
-            if amt > 0:
-                label = LHDN_RELIEF_LIMITS.get(acc, (acc.replace("Expenses:Tax:", ""), None))[0]
-                relief_items.append((label, amt))
-                total_relief += amt
-
-        # Auto-add SOCSO as relief if not explicitly in Expenses:Tax:SOCSO
-        socso_relief_explicit = any("SOCSO" in r[0] for r in relief_items)
-        if not socso_relief_explicit and socso_employee > 0:
-            socso_capped = min(socso_employee, Decimal("350"))
-            relief_items.append(("SOCSO (auto from salary)", socso_capped))
-            total_relief += socso_capped
-
-        # Individual relief (auto)
-        individual_relief = Decimal("9000")
-        total_relief += individual_relief
-
-        # 6. Calculate chargeable income and tax
-        total_income = gross_employment + total_other
-        chargeable = max(Decimal("0"), total_income - total_relief)
-        estimated_tax = _calc_my_tax(chargeable)
-        tax_balance = estimated_tax - pcb_withheld
-
-        # Format output
-        lines = [
-            f"🇲🇾 *LHDN Tax Summary — {year}*",
-            "",
-            "*INCOME*",
-            f"  Employment (CGPT)        RM {gross_employment:>12,.2f}",
-        ]
-        for name, amt in other_income_lines:
-            lines.append(f"  {name:<26} RM {amt:>12,.2f}")
-        lines.append(f"  {'─' * 42}")
-        lines.append(f"  *Total income*           RM {total_income:>12,.2f}")
-        lines.append("")
-
-        lines.append("*RELIEFS & DEDUCTIONS*")
-        lines.append(f"  Individual (auto)        RM {individual_relief:>12,.2f}")
-        for label, amt in relief_items:
-            lines.append(f"  {label:<26} RM {amt:>12,.2f}")
-        lines.append(f"  {'─' * 42}")
-        lines.append(f"  *Total relief*           RM {total_relief:>12,.2f}")
-        lines.append("")
-
-        lines.append("*TAX CALCULATION*")
-        lines.append(f"  Chargeable income        RM {chargeable:>12,.2f}")
-        lines.append(f"  Estimated tax            RM {estimated_tax:>12,.2f}")
-        lines.append(f"  PCB withheld             RM {pcb_withheld:>12,.2f}")
-        if tax_balance > 0:
-            lines.append(f"  *Balance to pay*         RM {tax_balance:>12,.2f}")
-        else:
-            lines.append(f"  *Refund due*             RM {abs(tax_balance):>12,.2f}")
-        lines.append("")
-
-        lines.append("*INFO (non-taxable)*")
-        lines.append(f"  Employer benefits (EPF/SOCSO/EIS)  RM {employer_benefits:>8,.2f}")
-        lines.append(f"  EPF employee contribution          RM {epf_employee:>8,.2f}")
-
-        await send_long_text(update, context, "\n".join(lines), parse_mode="Markdown")
-
-    except Exception as e:
-        log.error("Tax summary failed: %s", e)
-        await update.message.reply_text(f"❌ Error: {e}")
-
-
 def _sum_myr_from_inventory(inventory) -> Decimal:
     """Extract MYR total from a beancount inventory object."""
     total = Decimal("0")
@@ -1593,10 +1012,22 @@ async def handle_command(msg, reply) -> bool:
     cmd = msg.command
     args = msg.args or []
 
+    if cmd not in COMMANDS:
+        return False
+
+    if args and args[0] in ("--help", "-h", "help"):
+        await reply.reply_text(__doc__.strip())
+        return True
+
+    if not is_admin(msg.platform, msg.sender_id) and not msg.sender_role:
+        await reply.reply_text("Finance commands are restricted.")
+        return True
+
     if cmd == "pnl":
         try:
             ledger_type, rest = parse_ledger_and_args(args)
             start, end, _ = parse_date_range(rest)
+            await reply.send_typing()
             bql = (
                 f"SELECT account, sum(convert(position, '{OPERATING_CURRENCY}')) AS total "
                 f"WHERE (account ~ 'Income' OR account ~ 'Expenses') "
@@ -1638,10 +1069,7 @@ async def handle_command(msg, reply) -> bool:
                 f"  {'NET INCOME':<45} {net:>10,.2f} {OPERATING_CURRENCY}",
                 "", PERIOD_HELP,
             ])
-            text = "\n".join(lines)
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
-            await reply.reply_text(text)
+            await send_long_text(reply, "\n".join(lines), "pnl.txt")
         except Exception as e:
             log.error("P&L failed: %s", e)
             await reply.reply_error(f"Error: {e}")
@@ -1651,6 +1079,7 @@ async def handle_command(msg, reply) -> bool:
         try:
             ledger_type, rest = parse_ledger_and_args(args)
             as_of = rest[0] if rest else date.today().isoformat()
+            await reply.send_typing()
             bql = (
                 f"SELECT account, sum(position) "
                 f"WHERE date <= {as_of} "
@@ -1681,10 +1110,7 @@ async def handle_command(msg, reply) -> bool:
                 else:
                     lines.append("  (none)")
 
-            text = "\n".join(lines)
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
-            await reply.reply_text(text)
+            await send_long_text(reply, "\n".join(lines), "bs.txt")
         except Exception as e:
             log.error("Balance sheet failed: %s", e)
             await reply.reply_error(f"Error: {e}")
@@ -1694,6 +1120,7 @@ async def handle_command(msg, reply) -> bool:
         try:
             ledger_type, rest = parse_ledger_and_args(args)
             start, end, _ = parse_date_range(rest)
+            await reply.send_typing()
             bql = (
                 f"SELECT account, sum(convert(position, '{OPERATING_CURRENCY}')) AS total "
                 f"WHERE account ~ 'Assets:Cash' "
@@ -1719,10 +1146,7 @@ async def handle_command(msg, reply) -> bool:
                 f"  {'NET CASH MOVEMENT':<45} {total:>10,.2f} {OPERATING_CURRENCY}",
                 "", PERIOD_HELP,
             ])
-            text = "\n".join(lines)
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
-            await reply.reply_text(text)
+            await send_long_text(reply, "\n".join(lines), "cashflow.txt")
         except Exception as e:
             log.error("Cashflow failed: %s", e)
             await reply.reply_error(f"Error: {e}")
@@ -1732,6 +1156,7 @@ async def handle_command(msg, reply) -> bool:
         try:
             ledger_type, rest = parse_ledger_and_args(args)
             target_date = rest[0] if rest else date.today().isoformat()
+            await reply.send_typing()
 
             sys.path.insert(0, str(FINANCES_DIR / "scripts"))
             try:
@@ -1745,9 +1170,7 @@ async def handle_command(msg, reply) -> bool:
                     get_final_aggregated_report(journal, target_date)
                 output = buf.getvalue()
 
-                if len(output) > 4000:
-                    output = output[:4000] + "\n... (truncated)"
-                await reply.reply_text(output)
+                await send_long_text(reply, output, "fxgain.txt")
             finally:
                 scripts_path = str(FINANCES_DIR / "scripts")
                 if scripts_path in sys.path:
@@ -1761,6 +1184,7 @@ async def handle_command(msg, reply) -> bool:
         try:
             from collections import defaultdict
             ledger_type, _ = parse_ledger_and_args(args)
+            await reply.send_typing()
 
             bal_bql = (
                 "SELECT payee, sum(position) AS balance "
@@ -1823,10 +1247,7 @@ async def handle_command(msg, reply) -> bool:
                 lines.append("")
             lines.append(f"Grand total: {grand_total:,.2f}")
 
-            text = "\n".join(lines)
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
-            await reply.reply_text(text)
+            await send_long_text(reply, "\n".join(lines), "receivables.txt")
         except Exception as e:
             log.error("Receivables query failed: %s", e)
             await reply.reply_error(f"Error: {e}")
@@ -1835,6 +1256,7 @@ async def handle_command(msg, reply) -> bool:
     if cmd == "payables":
         try:
             ledger_type, _ = parse_ledger_and_args(args)
+            await reply.send_typing()
             result = run_bql(
                 ledger_type,
                 "SELECT account, sum(position) "
@@ -1842,10 +1264,7 @@ async def handle_command(msg, reply) -> bool:
                 "GROUP BY account ORDER BY account",
             )
             header = f"Payables ({ledger_type})"
-            text = f"{header}\n{'=' * len(header)}\n\n{result}"
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
-            await reply.reply_text(text)
+            await send_long_text(reply, f"{header}\n{'=' * len(header)}\n\n{result}", "payables.txt")
         except Exception as e:
             log.error("Payables query failed: %s", e)
             await reply.reply_error(f"Error: {e}")
@@ -1855,10 +1274,25 @@ async def handle_command(msg, reply) -> bool:
         try:
             ledger_type, rest = parse_ledger_and_args(args)
             year = int(rest[0]) if rest and rest[0].isdigit() else date.today().year - 1
+            await reply.send_typing()
             report = _build_annual_report(year, ledger_type)
-            if len(report) > 4000:
-                report = report[:4000] + "\n... (truncated)"
-            await reply.reply_text(report)
+            notes = _build_annual_notes(year, ledger_type)
+
+            # Build markdown and publish to mdpubs (with fallback to inline)
+            try:
+                from plugins.mdpubs.mdpubs_plugin import publish_or_fallback
+                company = ledger_type.upper() if ledger_type != "cupbots" else "CUPBOTS OÜ"
+                title = f"{company} — Annual Report {year}"
+                md = _report_to_markdown(report, company, year, notes=notes)
+                key = f"annual-report-{ledger_type}-{year}"
+                url, content = await publish_or_fallback(key, title, md, tags=["finance", f"annual-report-{year}"])
+
+                if url:
+                    await reply.reply_text(f"{title}\n{url}")
+                else:
+                    await send_long_text(reply, f"{title}\n\n{content}", "annualreport.txt")
+            except ImportError:
+                await send_long_text(reply, report, "annualreport.txt")
         except Exception as e:
             log.error("Annual report failed: %s", e)
             await reply.reply_error(f"Error: {e}")
@@ -1869,6 +1303,7 @@ async def handle_command(msg, reply) -> bool:
             year = date.today().year
             if args and args[0].isdigit() and len(args[0]) == 4:
                 year = int(args[0])
+            await reply.send_typing()
 
             bql = (
                 f"SELECT account, sum(convert(position, 'MYR')) AS total "
@@ -1914,10 +1349,7 @@ async def handle_command(msg, reply) -> bool:
                 lines.append("")
             lines.append(f"Total claimed: RM {grand_total:,.0f}")
 
-            text = "\n".join(lines)
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
-            await reply.reply_text(text)
+            await send_long_text(reply, "\n".join(lines), "taxrelief.txt")
         except Exception as e:
             log.error("Tax relief report failed: %s", e)
             await reply.reply_error(f"Error: {e}")
@@ -1928,6 +1360,7 @@ async def handle_command(msg, reply) -> bool:
             year = date.today().year
             if args and args[0].isdigit() and len(args[0]) == 4:
                 year = int(args[0])
+            await reply.send_typing()
 
             date_filter = f"date >= {year}-01-01 AND date < {year + 1}-01-01"
 
@@ -2056,30 +1489,10 @@ async def handle_command(msg, reply) -> bool:
             lines.append(f"  Employer benefits (EPF/SOCSO/EIS)  RM {employer_benefits:>8,.2f}")
             lines.append(f"  EPF employee contribution          RM {epf_employee:>8,.2f}")
 
-            text = "\n".join(lines)
-            if len(text) > 4000:
-                text = text[:4000] + "\n... (truncated)"
-            await reply.reply_text(text)
+            await send_long_text(reply, "\n".join(lines), "taxsummary.txt")
         except Exception as e:
             log.error("Tax summary failed: %s", e)
             await reply.reply_error(f"Error: {e}")
         return True
 
     return False
-
-
-def register(app: Application):
-    """Register finance report commands."""
-    tid = get_finance_thread_id()
-
-    app.add_handler(topic_command("pnl", cmd_pnl, thread_id=tid))
-    app.add_handler(topic_command("bs", cmd_bs, thread_id=tid))
-    app.add_handler(topic_command("cashflow", cmd_cashflow, thread_id=tid))
-    app.add_handler(topic_command("fxgain", cmd_fxgain, thread_id=tid))
-    app.add_handler(topic_command("receivables", cmd_receivables, thread_id=tid))
-    app.add_handler(topic_command("payables", cmd_payables, thread_id=tid))
-    app.add_handler(topic_command("annualreport", cmd_annualreport, thread_id=tid))
-    app.add_handler(topic_command("taxrelief", cmd_taxrelief, thread_id=tid))
-    app.add_handler(topic_command("taxsummary", cmd_taxsummary, thread_id=tid))
-
-    log.info("Finance reports plugin loaded (thread: %s)", tid or "any")

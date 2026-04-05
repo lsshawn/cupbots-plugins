@@ -2,21 +2,16 @@
 Shared helpers for finance plugins.
 
 Provides beancount loading, BQL query execution, date parsing,
-ledger argument parsing, and Telegram output utilities.
+ledger argument parsing, and long-text output utilities.
 """
 
-import io
 import re
 import subprocess
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from telegram import Update
-from telegram.ext import ContextTypes
-
 from cupbots.helpers.logger import get_logger
-from cupbots.config import get_thread_id
 
 log = get_logger("finance")
 
@@ -25,12 +20,6 @@ from cupbots.config import get_config as _get_cfg
 FINANCES_DIR = Path(_get_cfg().get("allowed_paths", {}).get("finances", "/home/ss/projects/note/finances"))
 SCRIPTS_DIR = FINANCES_DIR / "scripts"
 OPERATING_CURRENCY = "EUR"
-
-
-def get_finance_thread_id():
-    """Get the finance topic thread ID."""
-    tid = get_thread_id("finance")
-    return tid if tid else None
 
 
 def _get_ledger_paths(ledger_type: str) -> dict:
@@ -269,39 +258,30 @@ def _format_bql_result(query_result) -> str:
     return "\n".join(lines)
 
 
-# --- Telegram output ---
+# --- Output helpers ---
 
-async def send_long_text(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    text: str,
-    filename: str = "report.txt",
-    parse_mode: str | None = None,
-):
-    """Send text as message if short, or as file upload if >4000 chars.
-    Always replies in the same topic thread as the original message.
-    """
-    msg = update.message or update.callback_query.message
-    chat_id = msg.chat_id
-    thread_id = msg.message_thread_id
-
+async def send_long_text(reply, text: str, filename: str = "report.txt"):
+    """Send text as message if short, or truncate with mdpubs link if >4000 chars."""
     if len(text) <= 4000:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"```\n{text}\n```" if not parse_mode else text,
-            parse_mode=parse_mode or "Markdown",
-            message_thread_id=thread_id,
+        await reply.reply_text(text)
+        return
+    # Try publishing long reports via mdpubs
+    try:
+        from plugins.mdpubs.mdpubs_plugin import publish_or_fallback
+        url, _ = await publish_or_fallback(
+            key=filename, title=filename, content=text,
         )
-    else:
-        doc = io.BytesIO(text.encode("utf-8"))
-        doc.name = filename
-        await context.bot.send_document(
-            chat_id=chat_id,
-            document=doc,
-            filename=filename,
-            caption=f"Report: {filename}",
-            message_thread_id=thread_id,
-        )
+        if url:
+            await reply.reply_text(
+                text[:2000] + f"\n\n... Full report: {url}"
+            )
+            return
+    except Exception:
+        pass
+    # Fallback: truncate
+    await reply.reply_text(
+        text[:3900] + f"\n\n... (truncated, {len(text)} chars total)"
+    )
 
 
 # --- Validation helpers ---
