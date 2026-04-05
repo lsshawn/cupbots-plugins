@@ -1,0 +1,24 @@
+{
+  "name": "notion",
+  "description": "Connect Notion pages and databases to WhatsApp",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/notion"],
+  "config": [
+    {
+      "key": "NOTION_API_KEY",
+      "label": "Notion Integration Token",
+      "type": "secret",
+      "required": true,
+      "help": "Create at notion.so/my-integrations"
+    }
+  ],
+  "free": true,
+  "bundled": true,
+  "marketplace": {
+    "icon": "link",
+    "tagline": "Read, update, and sync Notion databases from WhatsApp",
+    "category": "productivity",
+    "long_description": "Connect your Notion workspace to WhatsApp. Link databases and pages, search and update entries, and schedule automatic summaries. Perfect for CRM lookups, meeting notes, and weekly huddle digests."
+  }
+}
