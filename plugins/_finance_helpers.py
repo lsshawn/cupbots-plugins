@@ -267,7 +267,7 @@ async def send_long_text(reply, text: str, filename: str = "report.txt"):
         return
     # Try publishing long reports via mdpubs
     try:
-        from plugins.mdpubs.mdpubs_plugin import publish_or_fallback
+        from plugins.mdpubs.mdpubs import publish_or_fallback
         url, _ = await publish_or_fallback(
             key=filename, title=filename, content=text,
         )

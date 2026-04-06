@@ -418,7 +418,7 @@ async def _wa_smart_search(update: Update, query: str):
     cfg = get_config()
     from cupbots.config import get_repo_root
     project_root = Path(cfg.get("scripts_dir", str(get_repo_root())))
-    claude_cfg = cfg.get("claude", {})
+    claude_cfg = cfg.get("ai", {})
 
     # Prepend recent conversation context so short follow-ups work
     user_id = update.message.from_user.id if update.message.from_user else 0

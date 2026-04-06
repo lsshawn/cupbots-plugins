@@ -1280,7 +1280,7 @@ async def handle_command(msg, reply) -> bool:
 
             # Build markdown and publish to mdpubs (with fallback to inline)
             try:
-                from plugins.mdpubs.mdpubs_plugin import publish_or_fallback
+                from plugins.mdpubs.mdpubs import publish_or_fallback
                 company = ledger_type.upper() if ledger_type != "cupbots" else "CUPBOTS OÜ"
                 title = f"{company} — Annual Report {year}"
                 md = _report_to_markdown(report, company, year, notes=notes)

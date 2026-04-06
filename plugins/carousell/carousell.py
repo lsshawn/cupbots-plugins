@@ -284,7 +284,7 @@ async def _format_results_mdpubs(listings: list[dict], query: str,
                                   company_id: str | None = None) -> str | None:
     """Publish results to mdpubs if available, return URL or None."""
     try:
-        from cupbots.plugins.mdpubs_plugin import publish_or_fallback
+        from plugins.mdpubs.mdpubs import publish_or_fallback
     except ImportError:
         return None
 

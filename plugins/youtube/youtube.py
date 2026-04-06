@@ -639,7 +639,7 @@ async def handle_command(msg, reply) -> bool:
 
         # Try to publish via mdpubs (graceful fallback)
         try:
-            from cupbots.plugins.mdpubs_plugin import publish_or_fallback
+            from plugins.mdpubs.mdpubs import publish_or_fallback
             tg_post = _get_tg_post()
             title, video_url, feed, body = tg_post.read_md_file(str(filepath))
             pub_url, _ = await publish_or_fallback(

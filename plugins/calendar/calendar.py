@@ -1510,10 +1510,57 @@ async def handle_command(msg, reply) -> bool:
 
     # --- /event (write commands) ---
     if msg.command == "event":
-        if msg.args and msg.args[0] == "delete":
+        if not msg.args:
+            await reply.reply_text(
+                "Usage: /event <description>\n"
+                "Examples:\n"
+                "  /event Dentist tomorrow 14:00 30m\n"
+                "  /event Team standup every monday 9am\n"
+                "  /event delete <search>"
+            )
+            return True
+        if msg.args[0].lower() == "delete":
             msg.args = msg.args[1:]
             return await _handle_delete(msg, reply)
-        return False
+        # Create event via LLM parsing
+        raw = " ".join(msg.args)
+        try:
+            llm_result = await _parse_event_with_llm(raw)
+        except Exception as e:
+            await reply.reply_text(f"Parse error: {e}")
+            return True
+        if not llm_result:
+            await reply.reply_text(
+                "Couldn't parse that. Try:\n"
+                "/event Team lunch tomorrow noon 1h30m\n"
+                "/event Standup every monday 9am"
+            )
+            return True
+        title = llm_result["title"]
+        dtstart = llm_result["start"]
+        dtend = llm_result["end"]
+        location = llm_result.get("location", "")
+        rrule = llm_result.get("rrule", "")
+        # If the event is in the past and not recurring, bump to tomorrow
+        if not rrule and dtstart < now:
+            from datetime import timedelta
+            dtstart += timedelta(days=1)
+            dtend += timedelta(days=1)
+
+        tz_label = str(TZ).split("/")[-1]
+        try:
+            cal = _get_client()
+            uid = cal.add_event(title, dtstart, dtend, location=location, rrule=rrule)
+            parts = [f"Created: {title}"]
+            parts.append(f"{dtstart.strftime('%a %d %b %H:%M')} – {dtend.strftime('%H:%M')} ({tz_label})")
+            if rrule:
+                parts.append(f"Recurring: {rrule}")
+            if location:
+                parts.append(f"Location: {location}")
+            await reply.reply_text("\n".join(parts))
+        except Exception as e:
+            await reply.reply_text(f"Calendar error: {e}")
+        return True
 
     # --- /delete (legacy alias) ---
     if msg.command == "delete":

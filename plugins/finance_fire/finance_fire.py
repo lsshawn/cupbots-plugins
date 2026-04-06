@@ -204,7 +204,7 @@ async def _money(reply, args):
         publish_info = MONEY_PUBLISH_TITLES.get(sub)
         if publish_info:
             try:
-                from plugins.mdpubs.mdpubs_plugin import publish_or_fallback
+                from plugins.mdpubs.mdpubs import publish_or_fallback
                 key, title = publish_info
                 md = _text_to_markdown(text, title)
                 url, _ = await publish_or_fallback(key, title, md, tags=["finance", key])
