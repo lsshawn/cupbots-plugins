@@ -3,73 +3,216 @@
   "description": "Calendar management via CalDAV or Google Calendar",
   "version": "1.2.0",
   "author": "CupBots",
-  "commands": ["/cal", "/event"],
-  "config": [
-    {
-      "key": "CALENDAR_BACKEND",
-      "label": "Calendar backend",
-      "type": "text",
-      "required": false,
-      "help": "caldav (default) or google"
-    },
-    {
-      "key": "CALDAV_URL",
-      "label": "CalDAV Server URL",
-      "type": "text",
-      "required": false,
-      "help": "e.g. https://radicale.example.com/user/calendar/ (required for caldav backend)"
-    },
-    {
-      "key": "CALDAV_USERNAME",
-      "label": "CalDAV Username",
-      "type": "text",
-      "required": false,
-      "help": "Required for caldav backend"
-    },
-    {
-      "key": "CALDAV_PASSWORD",
-      "label": "CalDAV Password",
-      "type": "secret",
-      "required": false,
-      "help": "Required for caldav backend"
-    },
-    {
-      "key": "GOOGLE_CALENDAR_CREDENTIALS",
-      "label": "Google service account JSON (path or inline)",
-      "type": "secret",
-      "required": false,
-      "help": "Required for google backend (service account auth)"
-    },
-    {
-      "key": "GOOGLE_CALENDAR_ID",
-      "label": "Google Calendar ID",
-      "type": "text",
-      "required": false,
-      "help": "Default: primary. Use a specific calendar ID for shared calendars"
-    },
-    {
-      "key": "GOOGLE_CALENDAR_CLIENT_ID",
-      "label": "Google OAuth2 Client ID",
-      "type": "text",
-      "required": false,
-      "help": "For OAuth2 refresh token auth (alternative to service account)"
-    },
-    {
-      "key": "GOOGLE_CALENDAR_CLIENT_SECRET",
-      "label": "Google OAuth2 Client Secret",
-      "type": "secret",
-      "required": false,
-      "help": "For OAuth2 refresh token auth"
-    },
-    {
-      "key": "GOOGLE_CALENDAR_REFRESH_TOKEN",
-      "label": "Google OAuth2 Refresh Token",
-      "type": "secret",
-      "required": false,
-      "help": "For OAuth2 refresh token auth"
-    }
+  "commands": [
+    "/cal",
+    "/event"
   ],
-  "pip_dependencies": ["caldav", "icalendar"],
+  "intent": "Create, view, edit, or delete calendar events, meetings, appointments, huddles. Recurring event schedules.",
+  "not_intent": "Sending WhatsApp messages to someone at a scheduled time",
+  "config": [
+    [
+      [
+        "key",
+        "CALENDAR_BACKEND"
+      ],
+      [
+        "label",
+        "Calendar backend"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "caldav (default) or google"
+      ]
+    ],
+    [
+      [
+        "key",
+        "CALDAV_URL"
+      ],
+      [
+        "label",
+        "CalDAV Server URL"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "e.g. https://radicale.example.com/user/calendar/ (required for caldav backend)"
+      ]
+    ],
+    [
+      [
+        "key",
+        "CALDAV_USERNAME"
+      ],
+      [
+        "label",
+        "CalDAV Username"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "Required for caldav backend"
+      ]
+    ],
+    [
+      [
+        "key",
+        "CALDAV_PASSWORD"
+      ],
+      [
+        "label",
+        "CalDAV Password"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "Required for caldav backend"
+      ]
+    ],
+    [
+      [
+        "key",
+        "GOOGLE_CALENDAR_CREDENTIALS"
+      ],
+      [
+        "label",
+        "Google service account JSON (path or inline)"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "Required for google backend (service account auth)"
+      ]
+    ],
+    [
+      [
+        "key",
+        "GOOGLE_CALENDAR_ID"
+      ],
+      [
+        "label",
+        "Google Calendar ID"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "Default: primary. Use a specific calendar ID for shared calendars"
+      ]
+    ],
+    [
+      [
+        "key",
+        "GOOGLE_CALENDAR_CLIENT_ID"
+      ],
+      [
+        "label",
+        "Google OAuth2 Client ID"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "For OAuth2 refresh token auth (alternative to service account)"
+      ]
+    ],
+    [
+      [
+        "key",
+        "GOOGLE_CALENDAR_CLIENT_SECRET"
+      ],
+      [
+        "label",
+        "Google OAuth2 Client Secret"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "For OAuth2 refresh token auth"
+      ]
+    ],
+    [
+      [
+        "key",
+        "GOOGLE_CALENDAR_REFRESH_TOKEN"
+      ],
+      [
+        "label",
+        "Google OAuth2 Refresh Token"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "For OAuth2 refresh token auth"
+      ]
+    ]
+  ],
+  "pip_dependencies": [
+    "caldav",
+    "icalendar"
+  ],
   "free": true,
   "bundled": true,
   "marketplace": {

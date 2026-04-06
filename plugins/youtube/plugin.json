@@ -3,9 +3,14 @@
   "description": "Analyze YouTube videos — transcript extraction + AI summary",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/yt"],
+  "commands": [
+    "/yt"
+  ],
+  "intent": "Analyze a YouTube video — get transcript, summary, key insights",
   "config": [],
-  "pip_dependencies": ["miniflux"],
+  "pip_dependencies": [
+    "miniflux"
+  ],
   "free": true,
   "bundled": true,
   "marketplace": {

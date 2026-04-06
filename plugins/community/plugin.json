@@ -3,7 +3,10 @@
   "description": "All-in-one WhatsApp community management — gamification, moderation, onboarding, analytics, roles, and scheduled content",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/community"],
+  "commands": [
+    "/community"
+  ],
+  "intent": "Manage WhatsApp community — gamification, moderation, member onboarding, analytics",
   "config": [],
   "free": false,
   "price": "$49",

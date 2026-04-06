@@ -3,7 +3,10 @@
   "description": "Auto-save files sent to the group",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/uploads"],
+  "commands": [
+    "/uploads"
+  ],
+  "intent": "Save files or images sent in chat to the server",
   "config": [],
   "free": true,
   "bundled": true,

@@ -3,15 +3,35 @@
   "description": "Upload documents and search them with AI — PDF, DOCX, TXT supported. Replaces FAQ with semantic search.",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/knowledgebase", "/kb"],
+  "commands": [
+    "/knowledgebase",
+    "/kb"
+  ],
+  "intent": "Search uploaded documents (PDF, DOCX) for answers using AI",
+  "not_intent": "FAQ entries or personal notes",
   "config": [
-    {
-      "key": "CHUNKER_API_KEY",
-      "label": "Chunker API Key",
-      "type": "secret",
-      "required": true,
-      "help": "API key for the Chunker RAG service"
-    }
+    [
+      [
+        "key",
+        "CHUNKER_API_KEY"
+      ],
+      [
+        "label",
+        "Chunker API Key"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        true
+      ],
+      [
+        "help",
+        "API key for the Chunker RAG service"
+      ]
+    ]
   ],
   "free": false,
   "price": "$29",

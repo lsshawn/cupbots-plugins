@@ -12,6 +12,7 @@
         "/bookmarks",
         "/unbookmark"
       ],
+      "intent": "Save, search, or manage bookmarked URLs and links",
       "config": [],
       "free": true,
       "bundled": true,
@@ -34,70 +35,207 @@
         "/cal",
         "/event"
       ],
+      "intent": "Create, view, edit, or delete calendar events, meetings, appointments, huddles. Recurring event schedules.",
+      "not_intent": "Sending WhatsApp messages to someone at a scheduled time",
       "config": [
-        {
-          "key": "CALENDAR_BACKEND",
-          "label": "Calendar backend",
-          "type": "text",
-          "required": false,
-          "help": "caldav (default) or google"
-        },
-        {
-          "key": "CALDAV_URL",
-          "label": "CalDAV Server URL",
-          "type": "text",
-          "required": false,
-          "help": "e.g. https://radicale.example.com/user/calendar/ (required for caldav backend)"
-        },
-        {
-          "key": "CALDAV_USERNAME",
-          "label": "CalDAV Username",
-          "type": "text",
-          "required": false,
-          "help": "Required for caldav backend"
-        },
-        {
-          "key": "CALDAV_PASSWORD",
-          "label": "CalDAV Password",
-          "type": "secret",
-          "required": false,
-          "help": "Required for caldav backend"
-        },
-        {
-          "key": "GOOGLE_CALENDAR_CREDENTIALS",
-          "label": "Google service account JSON (path or inline)",
-          "type": "secret",
-          "required": false,
-          "help": "Required for google backend (service account auth)"
-        },
-        {
-          "key": "GOOGLE_CALENDAR_ID",
-          "label": "Google Calendar ID",
-          "type": "text",
-          "required": false,
-          "help": "Default: primary. Use a specific calendar ID for shared calendars"
-        },
-        {
-          "key": "GOOGLE_CALENDAR_CLIENT_ID",
-          "label": "Google OAuth2 Client ID",
-          "type": "text",
-          "required": false,
-          "help": "For OAuth2 refresh token auth (alternative to service account)"
-        },
-        {
-          "key": "GOOGLE_CALENDAR_CLIENT_SECRET",
-          "label": "Google OAuth2 Client Secret",
-          "type": "secret",
-          "required": false,
-          "help": "For OAuth2 refresh token auth"
-        },
-        {
-          "key": "GOOGLE_CALENDAR_REFRESH_TOKEN",
-          "label": "Google OAuth2 Refresh Token",
-          "type": "secret",
-          "required": false,
-          "help": "For OAuth2 refresh token auth"
-        }
+        [
+          [
+            "key",
+            "CALENDAR_BACKEND"
+          ],
+          [
+            "label",
+            "Calendar backend"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "caldav (default) or google"
+          ]
+        ],
+        [
+          [
+            "key",
+            "CALDAV_URL"
+          ],
+          [
+            "label",
+            "CalDAV Server URL"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "e.g. https://radicale.example.com/user/calendar/ (required for caldav backend)"
+          ]
+        ],
+        [
+          [
+            "key",
+            "CALDAV_USERNAME"
+          ],
+          [
+            "label",
+            "CalDAV Username"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Required for caldav backend"
+          ]
+        ],
+        [
+          [
+            "key",
+            "CALDAV_PASSWORD"
+          ],
+          [
+            "label",
+            "CalDAV Password"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Required for caldav backend"
+          ]
+        ],
+        [
+          [
+            "key",
+            "GOOGLE_CALENDAR_CREDENTIALS"
+          ],
+          [
+            "label",
+            "Google service account JSON (path or inline)"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Required for google backend (service account auth)"
+          ]
+        ],
+        [
+          [
+            "key",
+            "GOOGLE_CALENDAR_ID"
+          ],
+          [
+            "label",
+            "Google Calendar ID"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Default: primary. Use a specific calendar ID for shared calendars"
+          ]
+        ],
+        [
+          [
+            "key",
+            "GOOGLE_CALENDAR_CLIENT_ID"
+          ],
+          [
+            "label",
+            "Google OAuth2 Client ID"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "For OAuth2 refresh token auth (alternative to service account)"
+          ]
+        ],
+        [
+          [
+            "key",
+            "GOOGLE_CALENDAR_CLIENT_SECRET"
+          ],
+          [
+            "label",
+            "Google OAuth2 Client Secret"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "For OAuth2 refresh token auth"
+          ]
+        ],
+        [
+          [
+            "key",
+            "GOOGLE_CALENDAR_REFRESH_TOKEN"
+          ],
+          [
+            "label",
+            "Google OAuth2 Refresh Token"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "For OAuth2 refresh token auth"
+          ]
+        ]
       ],
       "pip_dependencies": [
         "caldav",
@@ -123,6 +261,7 @@
       "commands": [
         "/community"
       ],
+      "intent": "Manage WhatsApp community \u2014 gamification, moderation, member onboarding, analytics",
       "config": [],
       "free": false,
       "price": "$49",
@@ -150,6 +289,8 @@
         "/addcontact",
         "/contacts"
       ],
+      "intent": "Look up contact info, remember details about people, manage CRM entries, log interactions",
+      "not_intent": "Sending messages to contacts",
       "config": [],
       "free": true,
       "bundled": true,
@@ -171,6 +312,7 @@
       "commands": [
         "/dmonboarding"
       ],
+      "intent": "Configure first-time DM welcome flow with Stripe payment links",
       "config": [],
       "free": true,
       "bundled": true,
@@ -192,6 +334,8 @@
       "commands": [
         "/faq"
       ],
+      "intent": "Add or search frequently asked questions for auto-answers in groups",
+      "not_intent": "Knowledge base document search",
       "config": [],
       "free": false,
       "price": "$19",
@@ -216,6 +360,7 @@
         "/idea",
         "/ideas"
       ],
+      "intent": "Capture startup ideas, project ideas, or brainstorms for later review",
       "config": [],
       "free": true,
       "bundled": true,
@@ -238,14 +383,31 @@
         "/knowledgebase",
         "/kb"
       ],
+      "intent": "Search uploaded documents (PDF, DOCX) for answers using AI",
+      "not_intent": "FAQ entries or personal notes",
       "config": [
-        {
-          "key": "CHUNKER_API_KEY",
-          "label": "Chunker API Key",
-          "type": "secret",
-          "required": true,
-          "help": "API key for the Chunker RAG service"
-        }
+        [
+          [
+            "key",
+            "CHUNKER_API_KEY"
+          ],
+          [
+            "label",
+            "Chunker API Key"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "API key for the Chunker RAG service"
+          ]
+        ]
       ],
       "free": false,
       "price": "$29",
@@ -273,24 +435,55 @@
         "/lp status",
         "/lp domain"
       ],
+      "intent": "Deploy and manage landing pages from WhatsApp",
       "free": false,
       "price": "$29",
       "price_type": "monthly",
       "config": [
-        {
-          "key": "LAUNCHPAD_API_URL",
-          "label": "Launchpad service URL",
-          "type": "text",
-          "required": true,
-          "help": "URL of the Launchpad deployment service"
-        },
-        {
-          "key": "LAUNCHPAD_API_KEY",
-          "label": "Launchpad API key",
-          "type": "secret",
-          "required": true,
-          "help": "API key for authenticating with the Launchpad service"
-        }
+        [
+          [
+            "key",
+            "LAUNCHPAD_API_URL"
+          ],
+          [
+            "label",
+            "Launchpad service URL"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "URL of the Launchpad deployment service"
+          ]
+        ],
+        [
+          [
+            "key",
+            "LAUNCHPAD_API_KEY"
+          ],
+          [
+            "label",
+            "Launchpad API key"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "API key for authenticating with the Launchpad service"
+          ]
+        ]
       ],
       "bundled": false,
       "marketplace": {
@@ -311,35 +504,96 @@
       "commands": [
         "/mailwatch"
       ],
+      "intent": "Monitor email inboxes and forward matching emails to WhatsApp",
       "config": [
-        {
-          "key": "MAILWATCH_IMAP_HOST",
-          "label": "IMAP Host",
-          "type": "text",
-          "required": true,
-          "help": "e.g. imap.gmail.com"
-        },
-        {
-          "key": "MAILWATCH_EMAIL",
-          "label": "Email Address",
-          "type": "text",
-          "required": true,
-          "help": "The mailbox email address to watch"
-        },
-        {
-          "key": "MAILWATCH_APP_PASSWORD",
-          "label": "Email App Password",
-          "type": "secret",
-          "required": true,
-          "help": "Gmail: myaccount.google.com/apppasswords"
-        },
-        {
-          "key": "MAILWATCH_NOTIFY_CHAT",
-          "label": "WhatsApp Notification Chat",
-          "type": "text",
-          "required": true,
-          "help": "WhatsApp JID to send notifications to"
-        }
+        [
+          [
+            "key",
+            "MAILWATCH_IMAP_HOST"
+          ],
+          [
+            "label",
+            "IMAP Host"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "e.g. imap.gmail.com"
+          ]
+        ],
+        [
+          [
+            "key",
+            "MAILWATCH_EMAIL"
+          ],
+          [
+            "label",
+            "Email Address"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "The mailbox email address to watch"
+          ]
+        ],
+        [
+          [
+            "key",
+            "MAILWATCH_APP_PASSWORD"
+          ],
+          [
+            "label",
+            "Email App Password"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "Gmail: myaccount.google.com/apppasswords"
+          ]
+        ],
+        [
+          [
+            "key",
+            "MAILWATCH_NOTIFY_CHAT"
+          ],
+          [
+            "label",
+            "WhatsApp Notification Chat"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "WhatsApp JID to send notifications to"
+          ]
+        ]
       ],
       "free": false,
       "price": "$29",
@@ -364,14 +618,30 @@
         "/publish",
         "/published"
       ],
+      "intent": "Publish markdown notes to mdpubs.com",
       "config": [
-        {
-          "key": "MDPUBS_API_KEY",
-          "label": "MdPubs API Key",
-          "type": "secret",
-          "required": true,
-          "help": "Get your API key at https://mdpubs.com/settings"
-        }
+        [
+          [
+            "key",
+            "MDPUBS_API_KEY"
+          ],
+          [
+            "label",
+            "MdPubs API Key"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "Get your API key at https://mdpubs.com/settings"
+          ]
+        ]
       ],
       "migrations": [
         "1712000001_mdpubs_notes.js"
@@ -398,6 +668,8 @@
         "/note",
         "/notes"
       ],
+      "intent": "Create or search personal notes, quick memos, zettelkasten entries",
+      "not_intent": "Bookmarks, ideas, or knowledge base documents",
       "config": [],
       "free": true,
       "bundled": true,
@@ -419,14 +691,30 @@
       "commands": [
         "/notion"
       ],
+      "intent": "Read, search, or create pages in Notion workspace",
       "config": [
-        {
-          "key": "NOTION_API_KEY",
-          "label": "Notion Integration Token",
-          "type": "secret",
-          "required": true,
-          "help": "Create at notion.so/my-integrations"
-        }
+        [
+          [
+            "key",
+            "NOTION_API_KEY"
+          ],
+          [
+            "label",
+            "Notion Integration Token"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "Create at notion.so/my-integrations"
+          ]
+        ]
       ],
       "free": true,
       "bundled": true,
@@ -448,6 +736,7 @@
       "commands": [
         "/onboard"
       ],
+      "intent": "Configure welcome messages and onboarding flows for new group members",
       "config": [],
       "free": true,
       "bundled": true,
@@ -469,6 +758,7 @@
       "commands": [
         "/reddit"
       ],
+      "intent": "Get AI-curated digest from tracked subreddits",
       "config": [],
       "free": false,
       "price": "$19",
@@ -493,6 +783,8 @@
         "/remind",
         "/reminders"
       ],
+      "intent": "Set a personal reminder to do something at a specific time",
+      "not_intent": "Creating calendar events or sending WhatsApp messages",
       "config": [],
       "free": true,
       "bundled": true,
@@ -517,6 +809,7 @@
         "/searchyt",
         "/searchx"
       ],
+      "intent": "Research a topic across Reddit, YouTube, and X/Twitter",
       "config": [],
       "free": true,
       "bundled": true,
@@ -543,6 +836,7 @@
         "/stripe test",
         "/stripe webhook"
       ],
+      "intent": "Manage Stripe subscriptions, check payment status, configure payment links",
       "config": [],
       "free": true,
       "bundled": true,
@@ -564,6 +858,7 @@
       "commands": [
         "/uploads"
       ],
+      "intent": "Save files or images sent in chat to the server",
       "config": [],
       "free": true,
       "bundled": true,
@@ -585,14 +880,30 @@
       "commands": [
         "/wa"
       ],
+      "intent": "Control WhatsApp from Telegram \u2014 read, reply, search, summarize chats",
       "config": [
-        {
-          "key": "WA_API_URL",
-          "label": "WhatsApp Bot API URL",
-          "type": "text",
-          "required": false,
-          "help": "Default: http://127.0.0.1:3100"
-        }
+        [
+          [
+            "key",
+            "WA_API_URL"
+          ],
+          [
+            "label",
+            "WhatsApp Bot API URL"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Default: http://127.0.0.1:3100"
+          ]
+        ]
       ],
       "free": true,
       "bundled": true,
@@ -616,14 +927,31 @@
         "/wa scheduled",
         "/wa unschedule"
       ],
+      "intent": "Send a WhatsApp message to a specific person or group at a scheduled time",
+      "not_intent": "Creating calendar events, meetings, or appointments",
       "config": [
-        {
-          "key": "BOT_TIMEZONE",
-          "label": "Timezone for scheduling",
-          "type": "text",
-          "required": false,
-          "help": "Default: Asia/Kuala_Lumpur. IANA timezone string."
-        }
+        [
+          [
+            "key",
+            "BOT_TIMEZONE"
+          ],
+          [
+            "label",
+            "Timezone for scheduling"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Default: Asia/Kuala_Lumpur. IANA timezone string."
+          ]
+        ]
       ],
       "requires": [
         "whatsapp"
@@ -648,21 +976,52 @@
       "commands": [
         "/xdigest"
       ],
+      "intent": "Get AI market intelligence digest from X/Twitter lists",
       "config": [
-        {
-          "key": "XDIGEST_LIST_ID",
-          "label": "X List ID",
-          "type": "text",
-          "required": true,
-          "help": "The numeric ID of your X list (from the list URL)"
-        },
-        {
-          "key": "XDIGEST_COOKIES",
-          "label": "X Browser Cookies (JSON)",
-          "type": "secret",
-          "required": true,
-          "help": "Playwright storage_state JSON \u2014 export from 'Get cookies.txt LOCALLY' extension"
-        }
+        [
+          [
+            "key",
+            "XDIGEST_LIST_ID"
+          ],
+          [
+            "label",
+            "X List ID"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "The numeric ID of your X list (from the list URL)"
+          ]
+        ],
+        [
+          [
+            "key",
+            "XDIGEST_COOKIES"
+          ],
+          [
+            "label",
+            "X Browser Cookies (JSON)"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            true
+          ],
+          [
+            "help",
+            "Playwright storage_state JSON \u2014 export from 'Get cookies.txt LOCALLY' extension"
+          ]
+        ]
       ],
       "pip_dependencies": [
         "playwright"
@@ -689,6 +1048,7 @@
       "commands": [
         "/yt"
       ],
+      "intent": "Analyze a YouTube video \u2014 get transcript, summary, key insights",
       "config": [],
       "pip_dependencies": [
         "miniflux"

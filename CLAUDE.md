@@ -20,6 +20,7 @@ plugins/<name>/
 - Use per-plugin SQLite via `get_plugin_db("plugin_name")` for storage
 - Define `create_tables(conn)` for auto-init of tables on first DB access
 - Plugin code uses `from cupbots.helpers.X import Y` imports
+- For LLM calls, use `ask_llm()` (provider-agnostic, reads `ai.api_provider` config). Do NOT use `run_claude_cli()` for simple parsing — it's 10-100x more expensive
 - Third-party pip packages must be declared in `plugin.json` → `"pip_dependencies": ["pkg"]`
 - After changing any `plugin.json`, run `python3 scripts/build_registry.py`
 - Never edit `registry.json` manually — it's auto-generated

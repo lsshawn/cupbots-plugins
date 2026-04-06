@@ -3,7 +3,12 @@
   "description": "Set reminders with natural language time parsing",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/remind", "/reminders"],
+  "commands": [
+    "/remind",
+    "/reminders"
+  ],
+  "intent": "Set a personal reminder to do something at a specific time",
+  "not_intent": "Creating calendar events or sending WhatsApp messages",
   "config": [],
   "free": true,
   "bundled": true,

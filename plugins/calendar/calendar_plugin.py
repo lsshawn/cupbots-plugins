@@ -474,7 +474,7 @@ def _parse_event_args(args: list[str]) -> tuple[str, datetime, datetime] | None:
     return title, dtstart, dtend
 
 
-from cupbots.helpers.llm import _extract_json, run_claude_cli
+from cupbots.helpers.llm import _extract_json, ask_llm
 
 
 async def _parse_event_with_llm(raw_input: str) -> dict | None:
@@ -511,8 +511,8 @@ async def _parse_event_with_llm(raw_input: str) -> dict | None:
         f"- If you cannot parse at all, reply with just: null"
     )
 
-    result = await run_claude_cli(prompt, model="haiku", max_turns=1, timeout=30)
-    data = _extract_json(result["text"])
+    text = await ask_llm(prompt, json_mode=False, timeout=30)
+    data = _extract_json(text)
     if not data or not isinstance(data, dict):
         return None
 

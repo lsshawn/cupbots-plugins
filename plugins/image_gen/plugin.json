@@ -3,17 +3,37 @@
   "description": "Generate images using Gemini",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/img"],
-  "config": [
-    {
-      "key": "GEMINI_API_KEY",
-      "label": "Google Gemini API Key",
-      "type": "secret",
-      "required": true,
-      "help": "Get your API key at https://aistudio.google.com/apikey"
-    }
+  "commands": [
+    "/img"
   ],
-  "pip_dependencies": ["google-genai"],
+  "intent": "Generate images from text descriptions",
+  "config": [
+    [
+      [
+        "key",
+        "GEMINI_API_KEY"
+      ],
+      [
+        "label",
+        "Google Gemini API Key"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        true
+      ],
+      [
+        "help",
+        "Get your API key at https://aistudio.google.com/apikey"
+      ]
+    ]
+  ],
+  "pip_dependencies": [
+    "google-genai"
+  ],
   "free": true,
   "bundled": true,
   "status": "draft",

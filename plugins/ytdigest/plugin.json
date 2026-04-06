@@ -3,31 +3,82 @@
   "description": "AI-powered YouTube video analysis with timestamped insights — processes single videos or entire RSS feeds",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/ytdigest"],
-  "config": [
-    {
-      "key": "MINIFLUX_URL",
-      "label": "Miniflux URL",
-      "type": "text",
-      "required": false,
-      "help": "Miniflux instance URL (for RSS batch mode)"
-    },
-    {
-      "key": "MINIFLUX_API_KEY",
-      "label": "Miniflux API Key",
-      "type": "secret",
-      "required": false,
-      "help": "Miniflux API key for fetching unread entries"
-    },
-    {
-      "key": "YTDIGEST_MIN_DURATION",
-      "label": "Min video duration (minutes)",
-      "type": "text",
-      "required": false,
-      "help": "Skip videos shorter than this (default: 3)"
-    }
+  "commands": [
+    "/ytdigest"
   ],
-  "pip_dependencies": ["yt-dlp", "youtube-transcript-api"],
+  "intent": "Process YouTube RSS feeds or channels for batch video analysis",
+  "config": [
+    [
+      [
+        "key",
+        "MINIFLUX_URL"
+      ],
+      [
+        "label",
+        "Miniflux URL"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "Miniflux instance URL (for RSS batch mode)"
+      ]
+    ],
+    [
+      [
+        "key",
+        "MINIFLUX_API_KEY"
+      ],
+      [
+        "label",
+        "Miniflux API Key"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "Miniflux API key for fetching unread entries"
+      ]
+    ],
+    [
+      [
+        "key",
+        "YTDIGEST_MIN_DURATION"
+      ],
+      [
+        "label",
+        "Min video duration (minutes)"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        false
+      ],
+      [
+        "help",
+        "Skip videos shorter than this (default: 3)"
+      ]
+    ]
+  ],
+  "pip_dependencies": [
+    "yt-dlp",
+    "youtube-transcript-api"
+  ],
   "free": false,
   "price": "$19",
   "price_type": "monthly",

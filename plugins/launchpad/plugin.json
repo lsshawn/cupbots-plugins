@@ -3,25 +3,62 @@
   "description": "Deploy landing pages from WhatsApp — design, iterate, and go live in minutes",
   "version": "0.1.0",
   "author": "CupBots",
-  "commands": ["/lp", "/lp sites", "/lp edit", "/lp status", "/lp domain"],
+  "commands": [
+    "/lp",
+    "/lp sites",
+    "/lp edit",
+    "/lp status",
+    "/lp domain"
+  ],
+  "intent": "Deploy and manage landing pages from WhatsApp",
   "free": false,
   "price": "$29",
   "price_type": "monthly",
   "config": [
-    {
-      "key": "LAUNCHPAD_API_URL",
-      "label": "Launchpad service URL",
-      "type": "text",
-      "required": true,
-      "help": "URL of the Launchpad deployment service"
-    },
-    {
-      "key": "LAUNCHPAD_API_KEY",
-      "label": "Launchpad API key",
-      "type": "secret",
-      "required": true,
-      "help": "API key for authenticating with the Launchpad service"
-    }
+    [
+      [
+        "key",
+        "LAUNCHPAD_API_URL"
+      ],
+      [
+        "label",
+        "Launchpad service URL"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        true
+      ],
+      [
+        "help",
+        "URL of the Launchpad deployment service"
+      ]
+    ],
+    [
+      [
+        "key",
+        "LAUNCHPAD_API_KEY"
+      ],
+      [
+        "label",
+        "Launchpad API key"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        true
+      ],
+      [
+        "help",
+        "API key for authenticating with the Launchpad service"
+      ]
+    ]
   ],
   "bundled": false,
   "marketplace": {

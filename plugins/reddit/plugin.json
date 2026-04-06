@@ -3,7 +3,10 @@
   "description": "AI-curated daily digest from your tracked subreddits — actionable insights, tech trends, and fun finds",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/reddit"],
+  "commands": [
+    "/reddit"
+  ],
+  "intent": "Get AI-curated digest from tracked subreddits",
   "config": [],
   "free": false,
   "price": "$19",

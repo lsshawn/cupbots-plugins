@@ -3,7 +3,11 @@
   "description": "Capture and review ideas organized by year",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/idea", "/ideas"],
+  "commands": [
+    "/idea",
+    "/ideas"
+  ],
+  "intent": "Capture startup ideas, project ideas, or brainstorms for later review",
   "config": [],
   "free": true,
   "bundled": true,

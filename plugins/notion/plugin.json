@@ -3,15 +3,33 @@
   "description": "Connect Notion pages and databases to WhatsApp",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/notion"],
+  "commands": [
+    "/notion"
+  ],
+  "intent": "Read, search, or create pages in Notion workspace",
   "config": [
-    {
-      "key": "NOTION_API_KEY",
-      "label": "Notion Integration Token",
-      "type": "secret",
-      "required": true,
-      "help": "Create at notion.so/my-integrations"
-    }
+    [
+      [
+        "key",
+        "NOTION_API_KEY"
+      ],
+      [
+        "label",
+        "Notion Integration Token"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        true
+      ],
+      [
+        "help",
+        "Create at notion.so/my-integrations"
+      ]
+    ]
   ],
   "free": true,
   "bundled": true,

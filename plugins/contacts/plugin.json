@@ -3,7 +3,15 @@
   "description": "Personal CRM — track contacts, tiers, interactions, and follow-ups",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/crm", "/whois", "/remember", "/addcontact", "/contacts"],
+  "commands": [
+    "/crm",
+    "/whois",
+    "/remember",
+    "/addcontact",
+    "/contacts"
+  ],
+  "intent": "Look up contact info, remember details about people, manage CRM entries, log interactions",
+  "not_intent": "Sending messages to contacts",
   "config": [],
   "free": true,
   "bundled": true,

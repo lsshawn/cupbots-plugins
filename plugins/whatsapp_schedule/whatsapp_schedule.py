@@ -30,7 +30,7 @@ from telegram.ext import (
 from cupbots.config import get_config
 from cupbots.helpers.jobs import enqueue, register_handler, cancel_job, get_pending_jobs
 from cupbots.helpers.logger import get_logger
-from cupbots.helpers.llm import run_claude_cli, _extract_json
+from cupbots.helpers.llm import ask_llm, _extract_json
 
 log = get_logger("wa-schedule")
 
@@ -94,16 +94,12 @@ async def _parse_schedule_intent(raw: str, chats: list[dict]) -> dict | None:
     log.info("Parsing schedule intent: %s", raw)
 
     try:
-        result = await run_claude_cli(
-            prompt, model="haiku", max_turns=1,
-            max_budget_usd="0.02", timeout=30,
-        )
-        text = result["text"]
-    except RuntimeError as e:
-        log.error("Claude CLI error: %s", e)
+        text = await ask_llm(prompt, json_mode=False, timeout=30)
+    except Exception as e:
+        log.error("LLM parse error: %s", e)
         return None
 
-    log.info("CLI response: %s", text[:500])
+    log.info("LLM response: %s", text[:500] if text else "(empty)")
     data = _extract_json(text)
 
     if not data or not isinstance(data, dict):
@@ -221,6 +217,7 @@ def _do_list_scheduled() -> tuple[str, list[dict]]:
         payload = json.loads(job["payload"]) if isinstance(job["payload"], str) else job["payload"]
         all_msgs.append({
             "id": f"J{job['id']}",
+            "chat_id": payload.get("chat_id", ""),
             "chat_name": payload.get("chat_name", "?"),
             "message": payload.get("message", ""),
             "send_at": job["run_at"],
@@ -236,8 +233,17 @@ def _do_list_scheduled() -> tuple[str, list[dict]]:
         send_at = datetime.fromisoformat(m["send_at"])
         delta = send_at - now
         msg_preview = m["message"][:50] + ("..." if len(m["message"]) > 50 else "")
+        # Show recipient type (group vs DM) and identifier
+        chat_id = m["chat_id"]
+        if chat_id.endswith("@g.us"):
+            recipient = f"{m['chat_name']} (group)"
+        elif chat_id.endswith("@s.whatsapp.net"):
+            phone = chat_id.replace("@s.whatsapp.net", "")
+            recipient = f"{m['chat_name']} (+{phone})"
+        else:
+            recipient = m["chat_name"]
         lines.append(
-            f"#{m['id']} -> {m['chat_name']}\n"
+            f"#{m['id']} -> {recipient}\n"
             f"  {msg_preview}\n"
             f"  {send_at.strftime('%a %d %b %H:%M')} ({_format_delta(delta)})"
         )
@@ -272,7 +278,18 @@ async def _handle_wa_send_job(payload: dict, bot=None):
 # --- Cross-platform handler (REQUIRED — enables WhatsApp, future platforms) ---
 
 async def handle_command(msg, reply) -> bool:
-    """Platform-agnostic command handler for /wa schedule subcommands."""
+    """Platform-agnostic command handler for /wa schedule subcommands.
+
+Usage:
+  /wa schedule <who> <message> <when>  — Schedule a WhatsApp message (AI-parsed)
+  /wa scheduled                        — List all pending scheduled messages
+  /wa unschedule                       — Delete all pending scheduled messages
+
+Examples:
+  /wa schedule Ahmad remind about meeting tomorrow 9am
+  /wa schedule 016 6338 8589 message is "hello" in 5 minutes
+  /wa schedule Mom happy birthday! on march 25 midnight
+"""
     if msg.command != "wa":
         return False
 
@@ -280,17 +297,41 @@ async def handle_command(msg, reply) -> bool:
     subcmd = args[0].lower() if args else ""
 
     if subcmd == "schedule":
+        if len(args) > 1 and args[1] == "--help":
+            await reply.reply_text(
+                "Schedule a WhatsApp message with natural language.\n\n"
+                "Usage: /wa schedule <who> <message> <when>\n\n"
+                "Examples:\n"
+                "  /wa schedule Ahmad remind about meeting tomorrow 9am\n"
+                '  /wa schedule 016 6338 8589 message is "hello" in 5 minutes\n'
+                "  /wa schedule Mom happy birthday! on march 25 midnight"
+            )
+            return True
         raw = " ".join(args[1:])
         result = await _do_schedule(raw)
         await reply.reply_text(result)
         return True
 
     elif subcmd == "scheduled":
+        if len(args) > 1 and args[1] == "--help":
+            await reply.reply_text(
+                "List all pending scheduled WhatsApp messages.\n\n"
+                "Usage: /wa scheduled\n\n"
+                "Shows job ID, recipient (name + phone/group JID), message preview, and send time."
+            )
+            return True
         text, _ = _do_list_scheduled()
         await reply.reply_text(text)
         return True
 
     elif subcmd == "unschedule":
+        if len(args) > 1 and args[1] == "--help":
+            await reply.reply_text(
+                "Delete all pending scheduled WhatsApp messages.\n\n"
+                "Usage: /wa unschedule\n\n"
+                "Cancels every pending message in the schedule queue."
+            )
+            return True
         jobs = get_pending_jobs(queue="wa_send")
         if not jobs:
             await reply.reply_text("No scheduled messages to delete.")

@@ -3,7 +3,15 @@
   "description": "Stripe subscriptions — auto-invite paying customers to your WhatsApp community",
   "version": "0.1.0",
   "author": "CupBots",
-  "commands": ["/stripe", "/stripe status", "/stripe subs", "/stripe set", "/stripe test", "/stripe webhook"],
+  "commands": [
+    "/stripe",
+    "/stripe status",
+    "/stripe subs",
+    "/stripe set",
+    "/stripe test",
+    "/stripe webhook"
+  ],
+  "intent": "Manage Stripe subscriptions, check payment status, configure payment links",
   "config": [],
   "free": true,
   "bundled": true,

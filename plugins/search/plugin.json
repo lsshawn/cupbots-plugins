@@ -3,7 +3,13 @@
   "description": "Multi-platform research across Reddit, YouTube, and X",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/search", "/searchreddit", "/searchyt", "/searchx"],
+  "commands": [
+    "/search",
+    "/searchreddit",
+    "/searchyt",
+    "/searchx"
+  ],
+  "intent": "Research a topic across Reddit, YouTube, and X/Twitter",
   "config": [],
   "free": true,
   "bundled": true,

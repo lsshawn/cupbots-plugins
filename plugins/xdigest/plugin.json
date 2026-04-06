@@ -3,24 +3,59 @@
   "description": "AI market intelligence from your X/Twitter list — product signals, business ideas, distribution levers",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/xdigest"],
-  "config": [
-    {
-      "key": "XDIGEST_LIST_ID",
-      "label": "X List ID",
-      "type": "text",
-      "required": true,
-      "help": "The numeric ID of your X list (from the list URL)"
-    },
-    {
-      "key": "XDIGEST_COOKIES",
-      "label": "X Browser Cookies (JSON)",
-      "type": "secret",
-      "required": true,
-      "help": "Playwright storage_state JSON — export from 'Get cookies.txt LOCALLY' extension"
-    }
+  "commands": [
+    "/xdigest"
   ],
-  "pip_dependencies": ["playwright"],
+  "intent": "Get AI market intelligence digest from X/Twitter lists",
+  "config": [
+    [
+      [
+        "key",
+        "XDIGEST_LIST_ID"
+      ],
+      [
+        "label",
+        "X List ID"
+      ],
+      [
+        "type",
+        "text"
+      ],
+      [
+        "required",
+        true
+      ],
+      [
+        "help",
+        "The numeric ID of your X list (from the list URL)"
+      ]
+    ],
+    [
+      [
+        "key",
+        "XDIGEST_COOKIES"
+      ],
+      [
+        "label",
+        "X Browser Cookies (JSON)"
+      ],
+      [
+        "type",
+        "secret"
+      ],
+      [
+        "required",
+        true
+      ],
+      [
+        "help",
+        "Playwright storage_state JSON — export from 'Get cookies.txt LOCALLY' extension"
+      ]
+    ]
+  ],
+  "pip_dependencies": [
+    "playwright"
+  ],
   "free": false,
   "price": "$29",
   "price_type": "monthly",

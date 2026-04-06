@@ -3,7 +3,12 @@
   "description": "Save, search, and manage bookmarked links",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/bookmark", "/bookmarks", "/unbookmark"],
+  "commands": [
+    "/bookmark",
+    "/bookmarks",
+    "/unbookmark"
+  ],
+  "intent": "Save, search, or manage bookmarked URLs and links",
   "config": [],
   "free": true,
   "bundled": true,

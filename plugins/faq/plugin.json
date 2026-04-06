@@ -3,7 +3,11 @@
   "description": "Trainable Q&A bot — add FAQ entries, fuzzy search, auto-answer in groups",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/faq"],
+  "commands": [
+    "/faq"
+  ],
+  "intent": "Add or search frequently asked questions for auto-answers in groups",
+  "not_intent": "Knowledge base document search",
   "config": [],
   "free": false,
   "price": "$19",

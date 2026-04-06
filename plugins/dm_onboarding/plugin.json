@@ -3,7 +3,10 @@
   "description": "Welcome first-time DM users with a scripted onboarding flow and Stripe payment links",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/dmonboarding"],
+  "commands": [
+    "/dmonboarding"
+  ],
+  "intent": "Configure first-time DM welcome flow with Stripe payment links",
   "config": [],
   "free": true,
   "bundled": true,

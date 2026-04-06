@@ -3,7 +3,12 @@
   "description": "Create and list zk-format markdown notes",
   "version": "1.0.0",
   "author": "CupBots",
-  "commands": ["/note", "/notes"],
+  "commands": [
+    "/note",
+    "/notes"
+  ],
+  "intent": "Create or search personal notes, quick memos, zettelkasten entries",
+  "not_intent": "Bookmarks, ideas, or knowledge base documents",
   "config": [],
   "free": true,
   "bundled": true,
