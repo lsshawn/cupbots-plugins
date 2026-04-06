@@ -20,6 +20,7 @@
       "help": "Playwright storage_state JSON — export from 'Get cookies.txt LOCALLY' extension"
     }
   ],
+  "pip_dependencies": ["playwright"],
   "free": false,
   "price": "$29",
   "price_type": "monthly",

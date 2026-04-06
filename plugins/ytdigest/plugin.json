@@ -27,6 +27,7 @@
       "help": "Skip videos shorter than this (default: 3)"
     }
   ],
+  "pip_dependencies": ["yt-dlp", "youtube-transcript-api"],
   "free": false,
   "price": "$19",
   "price_type": "monthly",

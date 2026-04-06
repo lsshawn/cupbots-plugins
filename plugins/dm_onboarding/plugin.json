@@ -1,0 +1,16 @@
+{
+  "name": "dm_onboarding",
+  "description": "Welcome first-time DM users with a scripted onboarding flow and Stripe payment links",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/dmonboarding"],
+  "config": [],
+  "free": true,
+  "bundled": true,
+  "marketplace": {
+    "icon": "rocket",
+    "tagline": "Convert landing page visitors into paying subscribers via WhatsApp DM",
+    "category": "sales",
+    "long_description": "Detects first-time DM users from your landing page, sends a high-converting 3-5 message onboarding flow tailored to their intent, then drops the Stripe payment link. Returning users go straight to AI chat."
+  }
+}

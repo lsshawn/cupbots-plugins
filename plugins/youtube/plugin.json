@@ -5,6 +5,7 @@
   "author": "CupBots",
   "commands": ["/yt"],
   "config": [],
+  "pip_dependencies": ["miniflux"],
   "free": true,
   "bundled": true,
   "marketplace": {

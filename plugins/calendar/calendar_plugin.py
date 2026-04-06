@@ -8,6 +8,9 @@ Commands:
   /cal next                        — Next upcoming event
   /cal <date>                      — Events on a date (e.g. thursday, 25 jun)
   /cal free [date]                 — Free slots (today or specific date)
+  /cal briefing                    — Today's calendar briefing
+  /cal tomorrow                    — Tonight + tomorrow preview
+  /cal weekahead                   — Week ahead preview
   /cal holidays [3m|6m|1y]         — Upcoming public holidays (default: 3m)
   /cal holidays sync [country]     — Sync holidays to calendar (default: malaysia)
   /event <natural language>        — Add event (supports recurring, locations, URLs)
@@ -1102,6 +1105,9 @@ _TG_CAL_HELP = (
     "`/cal thursday` — Events on a date\n"
     "`/cal free` — Free slots today\n"
     "`/cal free tomorrow` — Free slots on date\n"
+    "`/cal briefing` — Today's calendar briefing\n"
+    "`/cal tomorrow` — Tonight + tomorrow preview\n"
+    "`/cal weekahead` — Week ahead preview\n"
     "`/cal holidays` — Upcoming holidays (3m)\n"
     "`/cal holidays sync` — Sync holidays to calendar\n\n"
     "`/event Dentist tomorrow 2pm 30m` — Add event\n"
@@ -1150,6 +1156,24 @@ async def cmd_cal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.args = args[1:]
         return await cmd_holidays(update, context)
 
+    # /cal briefing
+    if sub == "briefing":
+        text = _build_briefing()
+        await update.message.reply_text(text, disable_web_page_preview=True)
+        return
+
+    # /cal tomorrow
+    if sub == "tomorrow":
+        text = _build_tonight_tomorrow()
+        await update.message.reply_text(text, disable_web_page_preview=True)
+        return
+
+    # /cal weekahead
+    if sub == "weekahead":
+        text = _build_week_ahead()
+        await update.message.reply_text(text, disable_web_page_preview=True)
+        return
+
     # /cal <number> → agenda
     try:
         days_count = int(sub)
@@ -1161,6 +1185,174 @@ async def cmd_cal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # /cal <date> → specific day
     context.args = args
     return await cmd_day(update, context)
+
+
+def _build_briefing() -> str:
+    """Build today's briefing text."""
+    try:
+        from cupbots.config import get_config
+        cfg = get_config()
+        tz = ZoneInfo(cfg["schedule"]["timezone"])
+    except Exception:
+        tz = TZ
+
+    now = datetime.now(tz)
+    try:
+        cal = _get_client()
+        events = cal.get_events_today()
+    except Exception as e:
+        return f"Calendar unavailable: {e}"
+
+    lines = [f"Good morning! -- {now.strftime('%A, %d %B %Y')}\n"]
+
+    if not events:
+        lines.append("No events today. Deep work day!")
+        return "\n".join(lines)
+
+    lines.append(f"{len(events)} event(s) today:\n")
+
+    for ev in sorted(events, key=lambda e: e["start"]):
+        summary = ev["summary"] or "(no title)"
+        if ev.get("all_day"):
+            time_str = "All day"
+        else:
+            time_str = f"{ev['start'].strftime('%H:%M')}-{ev['end'].strftime('%H:%M')}"
+        location = f"\n  @ {ev['location']}" if ev.get("location") else ""
+        lines.append(f"  {time_str}  {summary}{location}")
+
+    try:
+        free_slots = cal.get_free_slots(now.date(), duration_minutes=60)
+        if free_slots:
+            s = free_slots[0]
+            lines.append(f"\nNext free hour: {s[0].strftime('%H:%M')}-{s[1].strftime('%H:%M')}")
+    except Exception:
+        pass
+
+    return "\n".join(lines)
+
+
+def _build_tonight_tomorrow() -> str:
+    """Build evening preview: remaining events tonight + all of tomorrow."""
+    try:
+        from cupbots.config import get_config
+        cfg = get_config()
+        tz = ZoneInfo(cfg["schedule"]["timezone"])
+    except Exception:
+        tz = TZ
+
+    now = datetime.now(tz)
+    today = now.date()
+    tomorrow = today + timedelta(days=1)
+
+    try:
+        cal = _get_client()
+        all_events = cal.get_events_range(days=3)
+
+        tonight_events = [
+            ev for ev in all_events
+            if ev["start"].date() == today and ev["end"] > now and not ev.get("all_day")
+        ]
+        tomorrow_events = [
+            ev for ev in all_events
+            if ev["start"].date() == tomorrow
+        ]
+    except Exception as e:
+        return f"Calendar unavailable: {e}"
+
+    lines = [f"Evening preview -- {now.strftime('%A, %d %B %Y')}\n"]
+
+    if tonight_events:
+        lines.append(f"Tonight ({len(tonight_events)}):\n")
+        for ev in sorted(tonight_events, key=lambda e: e["start"]):
+            summary = ev["summary"] or "(no title)"
+            time_str = f"{ev['start'].strftime('%H:%M')}-{ev['end'].strftime('%H:%M')}"
+            location = f"\n  @ {ev['location']}" if ev.get("location") else ""
+            lines.append(f"  {time_str}  {summary}{location}")
+        lines.append("")
+
+    if tomorrow_events:
+        lines.append(f"Tomorrow -- {tomorrow.strftime('%A, %d %B')} ({len(tomorrow_events)}):\n")
+        for ev in sorted(tomorrow_events, key=lambda e: e["start"]):
+            summary = ev["summary"] or "(no title)"
+            if ev.get("all_day"):
+                time_str = "All day"
+            else:
+                time_str = f"{ev['start'].strftime('%H:%M')}-{ev['end'].strftime('%H:%M')}"
+            location = f"\n  @ {ev['location']}" if ev.get("location") else ""
+            lines.append(f"  {time_str}  {summary}{location}")
+
+    if not tonight_events and not tomorrow_events:
+        lines.append("Nothing tonight or tomorrow. Rest up!")
+
+    return "\n".join(lines)
+
+
+def _build_week_ahead() -> str:
+    """Build week-ahead preview: all events for the next 7 days."""
+    try:
+        from cupbots.config import get_config
+        cfg = get_config()
+        tz = ZoneInfo(cfg["schedule"]["timezone"])
+    except Exception:
+        tz = TZ
+
+    now = datetime.now(tz)
+    tomorrow = now.date() + timedelta(days=1)
+
+    try:
+        cal = _get_client()
+        start = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, tzinfo=tz)
+        end = start + timedelta(days=7)
+        events = cal.get_events(start, end)
+        events = [ev for ev in events if tomorrow <= ev["start"].date() < (tomorrow + timedelta(days=7))]
+    except Exception as e:
+        return f"Calendar unavailable: {e}"
+
+    end_date = tomorrow + timedelta(days=6)
+    lines = [f"Week ahead -- {tomorrow.strftime('%d %b')} to {end_date.strftime('%d %b %Y')}\n"]
+
+    if not events:
+        lines.append("No events next week. Plan something!")
+        return "\n".join(lines)
+
+    by_date: dict = {}
+    for ev in events:
+        d = ev["start"].date()
+        by_date.setdefault(d, []).append(ev)
+
+    holiday_count = 0
+    event_count = 0
+    busy_days = 0
+
+    for d in sorted(by_date):
+        day_events = sorted(by_date[d], key=lambda e: e["start"])
+        day_has_non_holiday = any(not e.get("all_day") for e in day_events)
+        if day_has_non_holiday:
+            busy_days += 1
+
+        lines.append(f"\n{d.strftime('%a %d %b')}")
+        for ev in day_events:
+            summary = ev["summary"] or "(no title)"
+            if ev.get("all_day"):
+                time_str = "All day"
+                holiday_count += 1
+            else:
+                time_str = f"{ev['start'].strftime('%H:%M')}-{ev['end'].strftime('%H:%M')}"
+                event_count += 1
+            location = f"\n    @ {ev['location']}" if ev.get("location") else ""
+            lines.append(f"  {time_str}  {summary}{location}")
+
+    parts = []
+    if holiday_count:
+        parts.append(f"{holiday_count} holiday(s)")
+    if event_count:
+        parts.append(f"{event_count} event(s)")
+    if busy_days:
+        parts.append(f"{busy_days} busy day(s)")
+    if parts:
+        lines.append(f"\n{', '.join(parts)}")
+
+    return "\n".join(lines)
 
 
 def _format_event_plain(ev: dict) -> str:
@@ -1280,8 +1472,8 @@ async def _cal_free(now, args, reply):
         await reply.reply_text(f"No free slots on {_format_date_header(target)}.")
         return
     lines = [f"Free slots -- {_format_date_header(target)}:\n"]
-    for slot in slots:
-        lines.append(f"  {slot['start'].strftime('%H:%M')}-{slot['end'].strftime('%H:%M')}")
+    for slot_start, slot_end in slots:
+        lines.append(f"  {slot_start.strftime('%H:%M')}-{slot_end.strftime('%H:%M')}")
     await reply.reply_text("\n".join(lines))
 
 
@@ -1293,6 +1485,9 @@ _CAL_HELP = (
     "/cal next -- Next upcoming event\n"
     "/cal <date> -- Events on a date (e.g. thursday, 25 jun)\n"
     "/cal free [date] -- Free slots\n"
+    "/cal briefing -- Today's calendar briefing\n"
+    "/cal tomorrow -- Tonight + tomorrow preview\n"
+    "/cal weekahead -- Week ahead preview\n"
     "/cal holidays [3m|6m|1y] -- Upcoming holidays\n"
     "/cal holidays sync [country] -- Sync holidays\n"
     "/event <description> -- Add event\n"
@@ -1303,7 +1498,8 @@ _CAL_HELP = (
 async def handle_command(msg, reply) -> bool:
     """Platform-agnostic calendar commands."""
     if msg.command not in ("cal", "event", "today", "day", "week", "next",
-                           "agenda", "free", "delete", "holidays"):
+                           "agenda", "free", "delete", "holidays",
+                           "briefing", "tomorrow", "weekahead", "daily"):
         return False
 
     if msg.args and msg.args[0] in ("--help", "-h") and msg.command != "event":
@@ -1315,10 +1511,8 @@ async def handle_command(msg, reply) -> bool:
     # --- /event (write commands) ---
     if msg.command == "event":
         if msg.args and msg.args[0] == "delete":
-            # /event delete <search> → delegate to delete logic
             msg.args = msg.args[1:]
             return await _handle_delete(msg, reply)
-        # /event without WA handler — not yet implemented on WA side
         return False
 
     # --- /delete (legacy alias) ---
@@ -1356,45 +1550,59 @@ async def handle_command(msg, reply) -> bool:
         await _cal_free(now, msg.args, reply)
         return True
     if msg.command == "holidays":
-        # Not yet implemented on WA side
         return False
+
+    # --- Legacy briefing aliases ---
+    if msg.command in ("briefing", "daily"):
+        await reply.reply_text(_build_briefing())
+        return True
+    if msg.command == "tomorrow":
+        await reply.reply_text(_build_tonight_tomorrow())
+        return True
+    if msg.command == "weekahead":
+        await reply.reply_text(_build_week_ahead())
+        return True
 
     # --- /cal (unified command) ---
     args = msg.args or []
 
-    # /cal (no args) → today
     if not args:
         await _cal_today(now, reply)
         return True
 
     sub = args[0].lower()
 
-    # /cal --help
     if sub in ("--help", "-h", "help"):
         await reply.reply_text(_CAL_HELP)
         return True
 
-    # /cal week
     if sub == "week":
         await _cal_agenda(now, 7, reply)
         return True
 
-    # /cal next
     if sub == "next":
         await _cal_next(now, reply)
         return True
 
-    # /cal free [date]
     if sub == "free":
         await _cal_free(now, args[1:], reply)
         return True
 
-    # /cal holidays [args]
     if sub == "holidays":
-        # Not yet implemented on WA side
         return False
 
-    # /cal <number> → agenda N days
+    if sub == "briefing":
+        await reply.reply_text(_build_briefing())
+        return True
+
+    if sub == "tomorrow":
+        await reply.reply_text(_build_tonight_tomorrow())
+        return True
+
+    if sub == "weekahead":
+        await reply.reply_text(_build_week_ahead())
+        return True
+
     try:
         days_count = int(sub)
         await _cal_agenda(now, max(1, min(days_count, 30)), reply)
@@ -1402,7 +1610,6 @@ async def handle_command(msg, reply) -> bool:
     except ValueError:
         pass
 
-    # /cal <date> → specific day
     target = _parse_date(" ".join(args), now)
     if target:
         await _cal_day(now, target, reply)

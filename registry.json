@@ -28,7 +28,7 @@
     "calendar": {
       "name": "calendar",
       "description": "Calendar management via CalDAV or Google Calendar",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "author": "CupBots",
       "commands": [
         "/cal",
@@ -99,6 +99,10 @@
           "help": "For OAuth2 refresh token auth"
         }
       ],
+      "pip_dependencies": [
+        "caldav",
+        "icalendar"
+      ],
       "free": true,
       "bundled": true,
       "marketplace": {
@@ -109,32 +113,6 @@
       },
       "files": [
         "plugins/calendar_plugin.py"
-      ]
-    },
-    "calendar_briefing": {
-      "name": "calendar_briefing",
-      "description": "Calendar briefing with tomorrow and week-ahead views",
-      "version": "1.0.0",
-      "author": "CupBots",
-      "commands": [
-        "/briefing",
-        "/tomorrow",
-        "/weekahead"
-      ],
-      "config": [],
-      "requires": [
-        "calendar"
-      ],
-      "free": true,
-      "bundled": true,
-      "marketplace": {
-        "icon": "today",
-        "tagline": "Automated daily briefings and upcoming event reminders",
-        "category": "productivity",
-        "long_description": "Start your day prepared with calendar briefings delivered straight to WhatsApp. Get tonight and tomorrow previews, week-ahead summaries, and automatic reminders before upcoming events so nothing slips through the cracks."
-      },
-      "files": [
-        "plugins/calendar_briefing.py"
       ]
     },
     "community": {
@@ -185,25 +163,25 @@
         "plugins/contacts.py"
       ]
     },
-    "daily_briefing": {
-      "name": "daily_briefing",
-      "description": "Automated morning briefing with today's agenda",
+    "dm_onboarding": {
+      "name": "dm_onboarding",
+      "description": "Welcome first-time DM users with a scripted onboarding flow and Stripe payment links",
       "version": "1.0.0",
       "author": "CupBots",
       "commands": [
-        "/daily"
+        "/dmonboarding"
       ],
       "config": [],
       "free": true,
       "bundled": true,
       "marketplace": {
-        "icon": "wb_sunny",
-        "tagline": "Get your daily agenda delivered every morning",
-        "category": "productivity",
-        "long_description": "Receive a clean summary of today's calendar events each morning in WhatsApp. No need to open your calendar app \u2014 your agenda comes to you so you can plan your day at a glance."
+        "icon": "rocket",
+        "tagline": "Convert landing page visitors into paying subscribers via WhatsApp DM",
+        "category": "sales",
+        "long_description": "Detects first-time DM users from your landing page, sends a high-converting 3-5 message onboarding flow tailored to their intent, then drops the Stripe payment link. Returning users go straight to AI chat."
       },
       "files": [
-        "plugins/daily_briefing.py"
+        "plugins/dm_onboarding.py"
       ]
     },
     "faq": {
@@ -686,6 +664,9 @@
           "help": "Playwright storage_state JSON \u2014 export from 'Get cookies.txt LOCALLY' extension"
         }
       ],
+      "pip_dependencies": [
+        "playwright"
+      ],
       "free": false,
       "price": "$29",
       "price_type": "monthly",
@@ -709,6 +690,9 @@
         "/yt"
       ],
       "config": [],
+      "pip_dependencies": [
+        "miniflux"
+      ],
       "free": true,
       "bundled": true,
       "marketplace": {

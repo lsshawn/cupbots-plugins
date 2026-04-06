@@ -13,6 +13,7 @@
       "help": "Get your API key at https://aistudio.google.com/apikey"
     }
   ],
+  "pip_dependencies": ["google-genai"],
   "free": true,
   "bundled": true,
   "status": "draft",

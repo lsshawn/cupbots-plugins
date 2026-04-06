@@ -1,7 +1,7 @@
 {
   "name": "calendar",
   "description": "Calendar management via CalDAV or Google Calendar",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "CupBots",
   "commands": ["/cal", "/event"],
   "config": [
@@ -69,6 +69,7 @@
       "help": "For OAuth2 refresh token auth"
     }
   ],
+  "pip_dependencies": ["caldav", "icalendar"],
   "free": true,
   "bundled": true,
   "marketplace": {
