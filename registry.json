@@ -41,7 +41,7 @@
         [
           [
             "key",
-            "CALENDAR_BACKEND"
+            "calendar_backend"
           ],
           [
             "label",
@@ -63,7 +63,7 @@
         [
           [
             "key",
-            "CALDAV_URL"
+            "caldav_url"
           ],
           [
             "label",
@@ -85,7 +85,7 @@
         [
           [
             "key",
-            "CALDAV_USERNAME"
+            "caldav_username"
           ],
           [
             "label",
@@ -107,7 +107,7 @@
         [
           [
             "key",
-            "CALDAV_PASSWORD"
+            "caldav_password"
           ],
           [
             "label",
@@ -129,7 +129,7 @@
         [
           [
             "key",
-            "GOOGLE_CALENDAR_CREDENTIALS"
+            "google_calendar_credentials"
           ],
           [
             "label",
@@ -151,7 +151,7 @@
         [
           [
             "key",
-            "GOOGLE_CALENDAR_ID"
+            "google_calendar_id"
           ],
           [
             "label",
@@ -173,7 +173,7 @@
         [
           [
             "key",
-            "GOOGLE_CALENDAR_CLIENT_ID"
+            "google_calendar_client_id"
           ],
           [
             "label",
@@ -195,7 +195,7 @@
         [
           [
             "key",
-            "GOOGLE_CALENDAR_CLIENT_SECRET"
+            "google_calendar_client_secret"
           ],
           [
             "label",
@@ -217,7 +217,7 @@
         [
           [
             "key",
-            "GOOGLE_CALENDAR_REFRESH_TOKEN"
+            "google_calendar_refresh_token"
           ],
           [
             "label",
@@ -250,7 +250,7 @@
         "long_description": "View your agenda, find free slots, and create events using natural language \u2014 all from WhatsApp. Supports CalDAV (Radicale, Nextcloud) and Google Calendar. Recurring events, ICS imports, holiday syncing."
       },
       "files": [
-        "plugins/calendar_plugin.py"
+        "plugins/calendar.py"
       ]
     },
     "community": {
@@ -374,6 +374,32 @@
         "plugins/ideas.py"
       ]
     },
+    "invoice": {
+      "name": "invoice",
+      "description": "Stripe invoicing \u2014 create and send invoices to clients",
+      "version": "0.1.0",
+      "author": "CupBots",
+      "commands": [
+        "/invoice",
+        "/invoice list",
+        "/invoice status"
+      ],
+      "intent": "Create Stripe invoices, find or create clients, send invoices with line items",
+      "config": [],
+      "pip_dependencies": [
+        "stripe"
+      ],
+      "free": true,
+      "bundled": false,
+      "marketplace": {
+        "icon": "receipt_long",
+        "tagline": "Create and send Stripe invoices from chat",
+        "category": "finance"
+      },
+      "files": [
+        "plugins/invoice.py"
+      ]
+    },
     "knowledgebase": {
       "name": "knowledgebase",
       "description": "Upload documents and search them with AI \u2014 PDF, DOCX, TXT supported. Replaces FAQ with semantic search.",
@@ -389,7 +415,7 @@
         [
           [
             "key",
-            "CHUNKER_API_KEY"
+            "chunker_api_key"
           ],
           [
             "label",
@@ -443,7 +469,7 @@
         [
           [
             "key",
-            "LAUNCHPAD_API_URL"
+            "launchpad_api_url"
           ],
           [
             "label",
@@ -465,7 +491,7 @@
         [
           [
             "key",
-            "LAUNCHPAD_API_KEY"
+            "launchpad_api_key"
           ],
           [
             "label",
@@ -498,18 +524,22 @@
     },
     "mailwatch": {
       "name": "mailwatch",
-      "description": "Watch email inboxes and process messages with rules \u2014 keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies",
-      "version": "1.0.0",
+      "description": "Watch email inboxes and process unread messages with rules \u2014 keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Only processes unread (UNSEEN) emails; manually read emails are skipped. Send replies via AgentMail with auto-send rules or WhatsApp approval.",
+      "version": "1.1.0",
       "author": "CupBots",
       "commands": [
         "/mailwatch"
       ],
-      "intent": "Monitor email inboxes and forward matching emails to WhatsApp",
+      "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and send replies via AgentMail",
+      "pip_dependencies": [
+        "agentmail",
+        "svix"
+      ],
       "config": [
         [
           [
             "key",
-            "MAILWATCH_IMAP_HOST"
+            "mailwatch_imap_host"
           ],
           [
             "label",
@@ -531,7 +561,7 @@
         [
           [
             "key",
-            "MAILWATCH_EMAIL"
+            "mailwatch_email"
           ],
           [
             "label",
@@ -553,7 +583,7 @@
         [
           [
             "key",
-            "MAILWATCH_APP_PASSWORD"
+            "mailwatch_app_password"
           ],
           [
             "label",
@@ -575,7 +605,7 @@
         [
           [
             "key",
-            "MAILWATCH_NOTIFY_CHAT"
+            "mailwatch_notify_chat"
           ],
           [
             "label",
@@ -593,6 +623,138 @@
             "help",
             "WhatsApp JID to send notifications to"
           ]
+        ],
+        [
+          [
+            "key",
+            "agentmail_api_key"
+          ],
+          [
+            "label",
+            "AgentMail API Key"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "API key from agentmail.to \u2014 enables outbound email sending"
+          ]
+        ],
+        [
+          [
+            "key",
+            "agentmail_inbox_id"
+          ],
+          [
+            "label",
+            "AgentMail Inbox ID"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "AgentMail inbox ID for outbound emails"
+          ]
+        ],
+        [
+          [
+            "key",
+            "agentmail_address"
+          ],
+          [
+            "label",
+            "AgentMail From Address"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Outbound from address, e.g. pa@ai.cupbots.com"
+          ]
+        ],
+        [
+          [
+            "key",
+            "agentmail_display_name"
+          ],
+          [
+            "label",
+            "AgentMail Display Name"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Sender display name, e.g. ClientName Assistant"
+          ]
+        ],
+        [
+          [
+            "key",
+            "agentmail_reply_to"
+          ],
+          [
+            "label",
+            "AgentMail Reply-To (fallback)"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Fallback reply-to for new emails (replies auto-use the inbound address)"
+          ]
+        ],
+        [
+          [
+            "key",
+            "agentmail_webhook_secret"
+          ],
+          [
+            "label",
+            "AgentMail Webhook Secret"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Svix signing secret (whsec_...) for verifying inbound webhooks via hub relay"
+          ]
         ]
       ],
       "free": false,
@@ -603,7 +765,7 @@
         "icon": "mail",
         "tagline": "Turn your inbox into an automation engine",
         "category": "productivity",
-        "long_description": "Watch your email inbox and process messages automatically based on rules you define. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
+        "long_description": "Watch your email inbox and process unread messages automatically based on rules you define. Polls every 5 minutes for unread (UNSEEN) emails only \u2014 emails you've already read in your mail client are skipped. If an unread email doesn't match any rule, it stays unread so newly added rules can catch it on the next poll. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies with auto-send or WhatsApp approval via AgentMail. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
       },
       "files": [
         "plugins/mailwatch.py"
@@ -623,7 +785,7 @@
         [
           [
             "key",
-            "MDPUBS_API_KEY"
+            "mdpubs_api_key"
           ],
           [
             "label",
@@ -656,7 +818,7 @@
       },
       "files": [
         "pb_migrations/1712000001_mdpubs_notes.js",
-        "plugins/mdpubs_plugin.py"
+        "plugins/mdpubs.py"
       ]
     },
     "note": {
@@ -696,7 +858,7 @@
         [
           [
             "key",
-            "NOTION_API_KEY"
+            "notion_api_key"
           ],
           [
             "label",
@@ -829,9 +991,12 @@
       "version": "0.1.0",
       "author": "CupBots",
       "commands": [
+        "/subscription",
+        "/community",
         "/stripe",
         "/stripe status",
         "/stripe subs",
+        "/stripe community",
         "/stripe set",
         "/stripe test",
         "/stripe webhook"
@@ -885,7 +1050,7 @@
         [
           [
             "key",
-            "WA_API_URL"
+            "wa_api_url"
           ],
           [
             "label",
@@ -933,7 +1098,7 @@
         [
           [
             "key",
-            "BOT_TIMEZONE"
+            "bot_timezone"
           ],
           [
             "label",
@@ -968,6 +1133,31 @@
         "plugins/whatsapp_schedule.py"
       ]
     },
+    "wiki": {
+      "name": "wiki",
+      "version": "1.0.0",
+      "description": "AI-maintained wiki that synthesizes entity profiles from raw documents, emails, and calendar events. Implements the LLM Wiki pattern for incremental knowledge synthesis.",
+      "author": "CupBots",
+      "commands": [
+        {
+          "name": "wiki",
+          "description": "Manage wiki workspaces, ingest documents, search entities, and view logs",
+          "usage": "/wiki <subcommand> [--workspace <name>]"
+        }
+      ],
+      "intent": "Search wiki, find entity info, ingest documents, manage knowledge base, look up people or companies",
+      "not_intent": "General notes, bookmarks, or reminders",
+      "config": [],
+      "pip_dependencies": [
+        "sqlite-vec",
+        "pdfplumber"
+      ],
+      "free": true,
+      "bundled": true,
+      "files": [
+        "plugins/wiki.py"
+      ]
+    },
     "xdigest": {
       "name": "xdigest",
       "description": "AI market intelligence from your X/Twitter list \u2014 product signals, business ideas, distribution levers",
@@ -981,7 +1171,7 @@
         [
           [
             "key",
-            "XDIGEST_LIST_ID"
+            "xdigest_list_id"
           ],
           [
             "label",
@@ -1003,7 +1193,7 @@
         [
           [
             "key",
-            "XDIGEST_COOKIES"
+            "xdigest_cookies"
           ],
           [
             "label",

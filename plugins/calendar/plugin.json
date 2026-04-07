@@ -13,7 +13,7 @@
     [
       [
         "key",
-        "CALENDAR_BACKEND"
+        "calendar_backend"
       ],
       [
         "label",
@@ -35,7 +35,7 @@
     [
       [
         "key",
-        "CALDAV_URL"
+        "caldav_url"
       ],
       [
         "label",
@@ -57,7 +57,7 @@
     [
       [
         "key",
-        "CALDAV_USERNAME"
+        "caldav_username"
       ],
       [
         "label",
@@ -79,7 +79,7 @@
     [
       [
         "key",
-        "CALDAV_PASSWORD"
+        "caldav_password"
       ],
       [
         "label",
@@ -101,7 +101,7 @@
     [
       [
         "key",
-        "GOOGLE_CALENDAR_CREDENTIALS"
+        "google_calendar_credentials"
       ],
       [
         "label",
@@ -123,7 +123,7 @@
     [
       [
         "key",
-        "GOOGLE_CALENDAR_ID"
+        "google_calendar_id"
       ],
       [
         "label",
@@ -145,7 +145,7 @@
     [
       [
         "key",
-        "GOOGLE_CALENDAR_CLIENT_ID"
+        "google_calendar_client_id"
       ],
       [
         "label",
@@ -167,7 +167,7 @@
     [
       [
         "key",
-        "GOOGLE_CALENDAR_CLIENT_SECRET"
+        "google_calendar_client_secret"
       ],
       [
         "label",
@@ -189,7 +189,7 @@
     [
       [
         "key",
-        "GOOGLE_CALENDAR_REFRESH_TOKEN"
+        "google_calendar_refresh_token"
       ],
       [
         "label",

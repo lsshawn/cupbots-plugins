@@ -3,11 +3,11 @@ Finance — Beancount journal recording
 
 Commands:
   /finance [cupbots|personal] [income|expenses]  — Scan & process unprocessed invoices
-  /expense [personal] <desc>     — Add expense (attach receipt)
-  /income [personal] <desc>      — Record income (attach invoice)
-  /transfer [personal] <desc>    — Inter-account transfer
-  /invoice [personal] <desc>     — Record invoice sent (AR entry)
-  /payment [personal] <desc>     — Record payment received (clear AR)
+  /finance expense [personal] <desc>     — Add expense (attach receipt)
+  /finance income [personal] <desc>      — Record income (attach invoice)
+  /finance transfer [personal] <desc>    — Inter-account transfer
+  /finance ar [personal] <desc>          — Record invoice sent (AR entry)
+  /finance payment [personal] <desc>     — Record payment received (clear AR)
 """
 
 import asyncio
@@ -43,12 +43,9 @@ _processing = False
 
 COMMANDS = (
     "finance",
-    "expense",
-    "income",
-    "transfer",
-    "invoice",
-    "payment",
 )
+
+SUBCOMMANDS = ("expense", "income", "transfer", "ar", "payment")
 
 
 def _get_ledger_paths(ledger_type: str) -> dict:
@@ -617,7 +614,7 @@ Reply ONLY with valid JSON (no markdown fences):
 Chart of accounts:
 {summary}""",
 
-        "invoice": f"""You are an accounting expert. Parse the user's invoice description into a beancount journal entry.
+        "ar": f"""You are an accounting expert. Parse the user's invoice description into a beancount journal entry.
 
 Today's date is {today}. The operating currency is {OPERATING_CURRENCY}. The target ledger is '{ledger_type}'.
 
@@ -712,11 +709,11 @@ async def _handle_recording_cross_platform(msg, reply, record_type: str) -> None
 
     if not text:
         examples = {
-            "expense": f"/{record_type} [personal] <description>\n  /{record_type} 50 EUR groceries\n  /{record_type} personal 200 MYR electricity bill",
-            "income": f"/{record_type} [personal] <description>\n  /{record_type} 5000 USD from Third-Idea",
-            "transfer": f"/{record_type} [personal] <description>\n  /{record_type} 500 EUR from Wise to Jar",
-            "invoice": f"/{record_type} [personal] <client> <amount> <currency>\n  /{record_type} Third-Idea 5000 USD March dev",
-            "payment": f"/{record_type} [personal] <client> <amount> <currency>\n  /{record_type} Third-Idea 5000 USD wire-ref-123",
+            "expense": f"/finance {record_type} [personal] <description>\n  /finance {record_type} 50 EUR groceries\n  /finance {record_type} personal 200 MYR electricity bill",
+            "income": f"/finance {record_type} [personal] <description>\n  /finance {record_type} 5000 USD from Third-Idea",
+            "transfer": f"/finance {record_type} [personal] <description>\n  /finance {record_type} 500 EUR from Wise to Jar",
+            "ar": f"/finance {record_type} [personal] <client> <amount> <currency>\n  /finance {record_type} Third-Idea 5000 USD March dev",
+            "payment": f"/finance {record_type} [personal] <client> <amount> <currency>\n  /finance {record_type} Third-Idea 5000 USD wire-ref-123",
         }
         await reply.reply_text(f"Usage: {examples.get(record_type, '')}")
         return
@@ -869,12 +866,14 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text("Finance commands are restricted.")
         return True
 
-    if cmd == "finance":
-        await _handle_finance_scan(msg, reply)
+    # Subcommands: /finance expense, /finance income, etc.
+    if args and args[0] in SUBCOMMANDS:
+        subcmd = args[0]
+        # Rewrite msg.args to strip the subcommand
+        msg.args = args[1:]
+        await _handle_recording_cross_platform(msg, reply, subcmd)
         return True
 
-    if cmd in ("expense", "income", "transfer", "invoice", "payment"):
-        await _handle_recording_cross_platform(msg, reply, cmd)
-        return True
-
-    return False
+    # Default: /finance [cupbots|personal] [income|expenses] — scan mode
+    await _handle_finance_scan(msg, reply)
+    return True

@@ -13,7 +13,7 @@
     [
       [
         "key",
-        "CHUNKER_API_KEY"
+        "chunker_api_key"
       ],
       [
         "label",

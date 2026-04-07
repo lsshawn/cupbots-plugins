@@ -18,7 +18,7 @@
     [
       [
         "key",
-        "LAUNCHPAD_API_URL"
+        "launchpad_api_url"
       ],
       [
         "label",
@@ -40,7 +40,7 @@
     [
       [
         "key",
-        "LAUNCHPAD_API_KEY"
+        "launchpad_api_key"
       ],
       [
         "label",

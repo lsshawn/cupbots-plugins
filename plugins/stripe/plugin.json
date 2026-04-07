@@ -4,9 +4,12 @@
   "version": "0.1.0",
   "author": "CupBots",
   "commands": [
+    "/subscription",
+    "/community",
     "/stripe",
     "/stripe status",
     "/stripe subs",
+    "/stripe community",
     "/stripe set",
     "/stripe test",
     "/stripe webhook"

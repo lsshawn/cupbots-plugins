@@ -1,0 +1,19 @@
+{
+  "name": "wiki",
+  "version": "1.0.0",
+  "description": "AI-maintained wiki that synthesizes entity profiles from raw documents, emails, and calendar events. Implements the LLM Wiki pattern for incremental knowledge synthesis.",
+  "author": "CupBots",
+  "commands": [
+    {
+      "name": "wiki",
+      "description": "Manage wiki workspaces, ingest documents, search entities, and view logs",
+      "usage": "/wiki <subcommand> [--workspace <name>]"
+    }
+  ],
+  "intent": "Search wiki, find entity info, ingest documents, manage knowledge base, look up people or companies",
+  "not_intent": "General notes, bookmarks, or reminders",
+  "config": [],
+  "pip_dependencies": ["sqlite-vec", "pdfplumber"],
+  "free": true,
+  "bundled": true
+}

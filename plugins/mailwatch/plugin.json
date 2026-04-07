@@ -1,23 +1,24 @@
 {
   "name": "mailwatch",
-  "description": "Watch email inboxes and process messages with rules — keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Send replies via AgentMail with auto-send rules or WhatsApp approval.",
+  "description": "Watch email inboxes and process unread messages with rules — keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Only processes unread (UNSEEN) emails; manually read emails are skipped. Send replies via AgentMail with auto-send rules or WhatsApp approval.",
   "version": "1.1.0",
   "author": "CupBots",
   "commands": [
     "/mailwatch"
   ],
   "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and send replies via AgentMail",
-  "pip_dependencies": ["agentmail"],
+  "pip_dependencies": ["agentmail", "svix"],
   "config": [
-    [["key", "MAILWATCH_IMAP_HOST"], ["label", "IMAP Host"], ["type", "text"], ["required", true], ["help", "e.g. imap.gmail.com"]],
-    [["key", "MAILWATCH_EMAIL"], ["label", "Email Address"], ["type", "text"], ["required", true], ["help", "The mailbox email address to watch"]],
-    [["key", "MAILWATCH_APP_PASSWORD"], ["label", "Email App Password"], ["type", "secret"], ["required", true], ["help", "Gmail: myaccount.google.com/apppasswords"]],
-    [["key", "MAILWATCH_NOTIFY_CHAT"], ["label", "WhatsApp Notification Chat"], ["type", "text"], ["required", true], ["help", "WhatsApp JID to send notifications to"]],
-    [["key", "AGENTMAIL_API_KEY"], ["label", "AgentMail API Key"], ["type", "secret"], ["required", false], ["help", "API key from agentmail.to — enables outbound email sending"]],
-    [["key", "AGENTMAIL_INBOX_ID"], ["label", "AgentMail Inbox ID"], ["type", "text"], ["required", false], ["help", "AgentMail inbox ID for outbound emails"]],
-    [["key", "AGENTMAIL_ADDRESS"], ["label", "AgentMail From Address"], ["type", "text"], ["required", false], ["help", "Outbound from address, e.g. pa@ai.cupbots.com"]],
-    [["key", "AGENTMAIL_DISPLAY_NAME"], ["label", "AgentMail Display Name"], ["type", "text"], ["required", false], ["help", "Sender display name, e.g. ClientName Assistant"]],
-    [["key", "AGENTMAIL_REPLY_TO"], ["label", "AgentMail Reply-To (fallback)"], ["type", "text"], ["required", false], ["help", "Fallback reply-to for new emails (replies auto-use the inbound address)"]]
+    [["key", "mailwatch_imap_host"], ["label", "IMAP Host"], ["type", "text"], ["required", true], ["help", "e.g. imap.gmail.com"]],
+    [["key", "mailwatch_email"], ["label", "Email Address"], ["type", "text"], ["required", true], ["help", "The mailbox email address to watch"]],
+    [["key", "mailwatch_app_password"], ["label", "Email App Password"], ["type", "secret"], ["required", true], ["help", "Gmail: myaccount.google.com/apppasswords"]],
+    [["key", "mailwatch_notify_chat"], ["label", "WhatsApp Notification Chat"], ["type", "text"], ["required", true], ["help", "WhatsApp JID to send notifications to"]],
+    [["key", "agentmail_api_key"], ["label", "AgentMail API Key"], ["type", "secret"], ["required", false], ["help", "API key from agentmail.to — enables outbound email sending"]],
+    [["key", "agentmail_inbox_id"], ["label", "AgentMail Inbox ID"], ["type", "text"], ["required", false], ["help", "AgentMail inbox ID for outbound emails"]],
+    [["key", "agentmail_address"], ["label", "AgentMail From Address"], ["type", "text"], ["required", false], ["help", "Outbound from address, e.g. pa@ai.cupbots.com"]],
+    [["key", "agentmail_display_name"], ["label", "AgentMail Display Name"], ["type", "text"], ["required", false], ["help", "Sender display name, e.g. ClientName Assistant"]],
+    [["key", "agentmail_reply_to"], ["label", "AgentMail Reply-To (fallback)"], ["type", "text"], ["required", false], ["help", "Fallback reply-to for new emails (replies auto-use the inbound address)"]],
+    [["key", "agentmail_webhook_secret"], ["label", "AgentMail Webhook Secret"], ["type", "secret"], ["required", false], ["help", "Svix signing secret (whsec_...) for verifying inbound webhooks via hub relay"]]
   ],
   "free": false,
   "price": "$29",
@@ -27,6 +28,6 @@
     "icon": "mail",
     "tagline": "Turn your inbox into an automation engine",
     "category": "productivity",
-    "long_description": "Watch your email inbox and process messages automatically based on rules you define. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies with auto-send or WhatsApp approval via AgentMail. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
+    "long_description": "Watch your email inbox and process unread messages automatically based on rules you define. Polls every 5 minutes for unread (UNSEEN) emails only — emails you've already read in your mail client are skipped. If an unread email doesn't match any rule, it stays unread so newly added rules can catch it on the next poll. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies with auto-send or WhatsApp approval via AgentMail. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
   }
 }

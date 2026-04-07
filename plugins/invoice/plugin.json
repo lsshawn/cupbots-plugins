@@ -1,0 +1,21 @@
+{
+  "name": "invoice",
+  "description": "Stripe invoicing — create and send invoices to clients",
+  "version": "0.1.0",
+  "author": "CupBots",
+  "commands": [
+    "/invoice",
+    "/invoice list",
+    "/invoice status"
+  ],
+  "intent": "Create Stripe invoices, find or create clients, send invoices with line items",
+  "config": [],
+  "pip_dependencies": ["stripe"],
+  "free": true,
+  "bundled": false,
+  "marketplace": {
+    "icon": "receipt_long",
+    "tagline": "Create and send Stripe invoices from chat",
+    "category": "finance"
+  }
+}

@@ -159,9 +159,9 @@ def _migrate_db():
 
 def _get_default_credentials():
     """Get shared credentials from plugin config (backward compat)."""
-    email_addr = resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_EMAIL") or ""
-    password = resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_APP_PASSWORD") or ""
-    host = resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_IMAP_HOST") or "imap.gmail.com"
+    email_addr = resolve_plugin_setting(PLUGIN_NAME, "mailwatch_email") or ""
+    password = resolve_plugin_setting(PLUGIN_NAME, "mailwatch_app_password") or ""
+    host = resolve_plugin_setting(PLUGIN_NAME, "mailwatch_imap_host") or "imap.gmail.com"
     return email_addr, password, host, 993
 
 
@@ -185,7 +185,7 @@ def _get_mailbox_credentials(mb: dict) -> tuple[str, str, str, int]:
 
 
 def _get_notify_chat():
-    return resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_NOTIFY_CHAT") or ""
+    return resolve_plugin_setting(PLUGIN_NAME, "mailwatch_notify_chat") or ""
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ def _get_agentmail():
     """Lazy-init async AgentMail client. Returns None if not configured."""
     global _agentmail_client
     if _agentmail_client is None:
-        api_key = resolve_plugin_setting(PLUGIN_NAME, "AGENTMAIL_API_KEY")
+        api_key = resolve_plugin_setting(PLUGIN_NAME, "agentmail_api_key")
         if api_key:
             try:
                 from agentmail import AsyncAgentMail
@@ -248,14 +248,14 @@ async def _agentmail_send(
         log.warning("AgentMail not configured — cannot send email")
         return None
 
-    inbox_id = resolve_plugin_setting(PLUGIN_NAME, "AGENTMAIL_INBOX_ID")
+    inbox_id = resolve_plugin_setting(PLUGIN_NAME, "agentmail_inbox_id")
     if not inbox_id:
-        log.warning("AGENTMAIL_INBOX_ID not configured")
+        log.warning("agentmail_inbox_id not configured")
         return None
 
     # Resolve reply-to: use provided (from inbound email), else config fallback
     if not reply_to:
-        reply_to = resolve_plugin_setting(PLUGIN_NAME, "AGENTMAIL_REPLY_TO") or ""
+        reply_to = resolve_plugin_setting(PLUGIN_NAME, "agentmail_reply_to") or ""
 
     # Threading headers for In-Reply-To / References
     headers = {}
@@ -945,6 +945,150 @@ async def _handle_watchdog_job(payload: dict, bot=None):
         run_at=datetime.now() + timedelta(minutes=5),
         max_attempts=1,
     )
+
+
+# ---------------------------------------------------------------------------
+# AgentMail inbound webhook (via hub relay)
+# ---------------------------------------------------------------------------
+
+async def process_agentmail_webhook(body: str, headers: dict) -> None:
+    """Process inbound email from AgentMail webhook (relayed via hub).
+
+    Verifies Svix signature, converts payload to email_data format,
+    and runs through the same rule-matching pipeline as IMAP polling.
+    """
+    # Verify Svix signature
+    webhook_secret = resolve_plugin_setting(PLUGIN_NAME, "agentmail_webhook_secret")
+    if webhook_secret:
+        try:
+            from svix.webhooks import Webhook, WebhookVerificationError
+            wh = Webhook(webhook_secret)
+            wh.verify(body, headers)
+        except WebhookVerificationError:
+            log.warning("AgentMail webhook signature verification failed")
+            raise ValueError("Invalid webhook signature")
+    else:
+        log.warning("AGENTMAIL_WEBHOOK_SECRET not set — skipping signature verification")
+
+    payload = json.loads(body)
+    event_type = payload.get("event_type", "")
+
+    if event_type != "message.received":
+        log.debug("Ignoring AgentMail event: %s", event_type)
+        return
+
+    data = payload.get("data", payload)
+
+    # Convert AgentMail payload to email_data format (same as _parse_email)
+    email_data = {
+        "subject": data.get("subject", "(no subject)"),
+        "sender": data.get("from_", data.get("from", "")),
+        "to": ", ".join(data.get("to", [])) if isinstance(data.get("to"), list) else data.get("to", ""),
+        "date": data.get("created_at", ""),
+        "message_id": data.get("message_id", data.get("id", "")),
+        "body_text": data.get("text", ""),
+        "body_html": data.get("html", ""),
+        "attachments": [
+            {"filename": a.get("filename", ""), "content_type": a.get("content_type", ""), "data": b""}
+            for a in data.get("attachments", [])
+        ],
+    }
+
+    if not email_data["body_text"] and email_data["body_html"]:
+        email_data["body_text"] = re.sub(r"<[^>]+>", " ", email_data["body_html"])
+        email_data["body_text"] = re.sub(r"\s+", " ", email_data["body_text"]).strip()
+
+    # Resolve company_id from inbox_id → mailbox mapping
+    inbox_id = data.get("inbox_id", "")
+    configured_inbox = resolve_plugin_setting(PLUGIN_NAME, "agentmail_inbox_id")
+
+    # Find company_id: match by configured inbox, or fall back to first active mailbox
+    company_id = ""
+    mailbox_id = 0
+    if inbox_id and inbox_id == configured_inbox:
+        # Use the first active mailbox's company_id (single-tenant typical case)
+        mb = _db().execute(
+            "SELECT id, company_id FROM mailboxes WHERE active = 1 ORDER BY id LIMIT 1"
+        ).fetchone()
+        if mb:
+            company_id = mb["company_id"]
+            mailbox_id = mb["id"]
+
+    if not company_id:
+        log.warning("AgentMail webhook: could not resolve company_id for inbox %s", inbox_id)
+        return
+
+    # Dedup by message_id
+    uid_str = f"agentmail:{email_data['message_id']}"
+    existing = _db().execute(
+        "SELECT 1 FROM processed_emails WHERE company_id = ? AND mailbox_id = ? AND uid = ?",
+        (company_id, mailbox_id, uid_str),
+    ).fetchone()
+    if existing:
+        log.debug("AgentMail webhook: already processed %s", uid_str)
+        return
+
+    # Load active rules and match
+    rules = _db().execute(
+        "SELECT * FROM rules WHERE company_id = ? AND active = 1 ORDER BY priority DESC",
+        (company_id,),
+    ).fetchall()
+
+    matched_rule = None
+    for rule in rules:
+        try:
+            if await _match_rule(dict(rule), email_data):
+                matched_rule = dict(rule)
+                break
+        except Exception as e:
+            log.error("Rule %d match error: %s", rule["id"], e)
+
+    if not matched_rule:
+        log.debug("AgentMail webhook: no rule matched for %s", email_data["subject"][:80])
+        return
+
+    # Execute action
+    action_fn = _ACTIONS.get(matched_rule["action"])
+    if action_fn:
+        try:
+            await action_fn(email_data, matched_rule, company_id)
+        except Exception as e:
+            log.error("Action %s failed for rule %d: %s",
+                      matched_rule["action"], matched_rule["id"], e)
+
+    # Emit events
+    try:
+        from cupbots.helpers.events import emit
+        await emit("email.received", {
+            "company_id": company_id,
+            "subject": email_data["subject"],
+            "sender": email_data["sender"],
+            "body_text": email_data["body_text"][:5000],
+            "attachments": [
+                {"filename": a["filename"], "content_type": a["content_type"]}
+                for a in email_data["attachments"]
+            ],
+            "rule_action": matched_rule["action"],
+            "source": "agentmail",
+        })
+    except Exception as e:
+        log.debug("Event emission failed (non-critical): %s", e)
+
+    # Record processed
+    _db().execute(
+        "INSERT OR IGNORE INTO processed_emails "
+        "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (company_id, mailbox_id, uid_str, email_data["message_id"],
+         email_data["subject"][:200], email_data["sender"][:200],
+         matched_rule["id"], matched_rule["action"]),
+    )
+    _db().execute(
+        "UPDATE rules SET hits = hits + 1, last_hit = datetime('now') WHERE id = ?",
+        (matched_rule["id"],),
+    )
+    _db().commit()
+    log.info("AgentMail webhook processed: %s → %s", email_data["subject"][:60], matched_rule["action"])
 
 
 # Register job handlers

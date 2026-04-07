@@ -41,9 +41,10 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
+        from cupbots.config import get_config
+        api_key = get_config().get("ai", {}).get("gemini_api_key", "")
         if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not set in .env")
+            raise RuntimeError("Set ai.gemini_api_key in config.yaml")
         _client = genai.Client(api_key=api_key)
     return _client
 

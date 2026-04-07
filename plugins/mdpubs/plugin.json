@@ -12,7 +12,7 @@
     [
       [
         "key",
-        "MDPUBS_API_KEY"
+        "mdpubs_api_key"
       ],
       [
         "label",

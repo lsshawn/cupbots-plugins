@@ -272,8 +272,8 @@ def _extract_summary(analysis: str) -> str:
 # ---------------------------------------------------------------------------
 
 async def _run_digest(company_id: str) -> str:
-    list_id = resolve_plugin_setting(PLUGIN_NAME, "XDIGEST_LIST_ID") or ""
-    cookies = resolve_plugin_setting(PLUGIN_NAME, "XDIGEST_COOKIES") or ""
+    list_id = resolve_plugin_setting(PLUGIN_NAME, "xdigest_list_id") or ""
+    cookies = resolve_plugin_setting(PLUGIN_NAME, "xdigest_cookies") or ""
     if not list_id or not cookies:
         return ("Configure X digest first:\n"
                 "/config xdigest XDIGEST_LIST_ID <list_id>\n"

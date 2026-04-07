@@ -11,7 +11,7 @@
     [
       [
         "key",
-        "XDIGEST_LIST_ID"
+        "xdigest_list_id"
       ],
       [
         "label",
@@ -33,7 +33,7 @@
     [
       [
         "key",
-        "XDIGEST_COOKIES"
+        "xdigest_cookies"
       ],
       [
         "label",

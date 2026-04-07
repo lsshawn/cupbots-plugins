@@ -35,7 +35,12 @@ from cupbots.helpers.llm import ask_llm, _extract_json
 log = get_logger("wa-schedule")
 
 WA_API = os.environ.get("WA_API_URL", "http://127.0.0.1:3100")
-TZ = ZoneInfo(os.environ.get("BOT_TIMEZONE", "Asia/Kuala_Lumpur"))
+try:
+    from cupbots.helpers.db import resolve_plugin_setting
+    _tz_name = resolve_plugin_setting("whatsapp_schedule", "bot_timezone") or "Asia/Kuala_Lumpur"
+except Exception:
+    _tz_name = "Asia/Kuala_Lumpur"
+TZ = ZoneInfo(_tz_name)
 
 
 # --- WhatsApp API helpers ---

@@ -360,14 +360,14 @@ async def _analyze_video(video_id: str, company_id: str,
 
 async def _run_miniflux(company_id: str) -> str:
     """Process unread YouTube entries from Miniflux."""
-    miniflux_url = resolve_plugin_setting(PLUGIN_NAME, "MINIFLUX_URL") or ""
-    miniflux_key = resolve_plugin_setting(PLUGIN_NAME, "MINIFLUX_API_KEY") or ""
+    miniflux_url = resolve_plugin_setting(PLUGIN_NAME, "miniflux_url") or ""
+    miniflux_key = resolve_plugin_setting(PLUGIN_NAME, "miniflux_api_key") or ""
     if not miniflux_url or not miniflux_key:
         return ("Configure Miniflux first:\n"
                 "/config ytdigest MINIFLUX_URL https://your-miniflux.com\n"
                 "/config ytdigest MINIFLUX_API_KEY your-key")
 
-    min_dur = int(resolve_plugin_setting(PLUGIN_NAME, "YTDIGEST_MIN_DURATION") or MIN_DURATION_DEFAULT)
+    min_dur = int(resolve_plugin_setting(PLUGIN_NAME, "ytdigest_min_duration") or MIN_DURATION_DEFAULT)
 
     # Fetch unread entries
     async with httpx.AsyncClient(timeout=30) as client:

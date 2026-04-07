@@ -85,7 +85,7 @@ def _db():
 def _get_client():
     """Return an AsyncClient or None if not configured."""
     from notion_client import AsyncClient
-    token = resolve_plugin_setting(PLUGIN_NAME, "NOTION_API_KEY")
+    token = resolve_plugin_setting(PLUGIN_NAME, "notion_api_key")
     if not token:
         return None
     return AsyncClient(auth=token)
@@ -93,7 +93,7 @@ def _get_client():
 
 def _ensure_configured() -> str | None:
     """Return setup instructions if not configured, None if OK."""
-    token = resolve_plugin_setting(PLUGIN_NAME, "NOTION_API_KEY")
+    token = resolve_plugin_setting(PLUGIN_NAME, "notion_api_key")
     if not token:
         return (
             "Notion not configured yet.\n\n"

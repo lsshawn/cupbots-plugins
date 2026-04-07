@@ -113,8 +113,9 @@ def _try_mark_miniflux_read(url: str) -> str | None:
     except ImportError:
         return None
 
-    miniflux_url = os.environ.get("MINIFLUX_URL")
-    miniflux_api_key = os.environ.get("MINIFLUX_API_KEY")
+    from cupbots.helpers.db import resolve_plugin_setting
+    miniflux_url = resolve_plugin_setting("youtube", "miniflux_url")
+    miniflux_api_key = resolve_plugin_setting("youtube", "miniflux_api_key")
     if not miniflux_url or not miniflux_api_key:
         return None
 
@@ -603,6 +604,8 @@ async def handle_command(msg, reply) -> bool:
     if msg.command != "yt":
         return False
 
+    _init_yt_paths()
+
     url = msg.args[0] if msg.args else ""
     if not url or not _is_youtube_url(url):
         await reply.reply_text("Usage: /yt <youtube-url>")
@@ -619,6 +622,9 @@ async def handle_command(msg, reply) -> bool:
 
         await reply.reply_text(f"{video_title} ({duration_min:.0f}min)\nAnalyzing...")
 
+        # Mark as read in RSS if found
+        feed_name = await _in_thread(_try_mark_miniflux_read, url) or ""
+
         prompt = (
             f"Video Title: {video_title}\n"
             f"Video URL: {url}\n\n"
@@ -633,31 +639,25 @@ async def handle_command(msg, reply) -> bool:
         )
         analysis = result["text"]
 
-        # Save and publish
+        # Save and publish via mdpubs
         YT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        filepath = await _save_yt_analysis(url, video_id, video_title, "", duration_min, analysis)
+        filepath = await _save_yt_analysis(url, video_id, video_title, feed_name, duration_min, analysis)
 
-        # Try to publish via mdpubs (graceful fallback)
-        try:
-            from plugins.mdpubs.mdpubs import publish_or_fallback
-            tg_post = _get_tg_post()
-            title, video_url, feed, body = tg_post.read_md_file(str(filepath))
-            pub_url, _ = await publish_or_fallback(
-                f"yt-{video_id}", title, body, company_id=msg.company_id, tags=["youtube"]
-            )
-            if pub_url:
-                await reply.reply_text(f"{video_title}\n\nWatch: {url}\nAnalysis: {pub_url}")
-            else:
-                # Send truncated analysis inline
-                text = f"{video_title}\n\n{analysis}"
-                if len(text) > 4000:
-                    text = text[:3997] + "..."
-                await reply.reply_text(text)
-        except ImportError:
-            text = f"{video_title}\n\n{analysis}"
-            if len(text) > 4000:
-                text = text[:3997] + "..."
-            await reply.reply_text(text)
+        from plugins.mdpubs.mdpubs import publish_or_fallback
+        tg_post = _get_tg_post()
+        title, video_url, feed, body = tg_post.read_md_file(str(filepath))
+        pub_url, _ = await publish_or_fallback(
+            f"yt-{video_id}", title, body, company_id=msg.company_id, tags=["youtube"]
+        )
+
+        parts = [f"*{video_title}*"]
+        if pub_url:
+            parts.append(pub_url)
+        else:
+            parts.append("(mdpubs not configured — analysis saved locally)")
+        if feed_name:
+            parts.append(f"_RSS: {feed_name} — marked read_")
+        await reply.reply_text("\n".join(parts))
 
     except Exception as e:
         log.error("YouTube analysis failed for %s: %s", url, e)

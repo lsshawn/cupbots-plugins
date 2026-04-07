@@ -49,12 +49,12 @@ COMMANDS = ("knowledgebase", "kb")
 AUTO_ANSWER_THRESHOLD = 0.75
 AUTO_ANSWER_LIMIT = 3
 
-# Chunker API — resolved from plugin_config table or env vars
-CHUNKER_API_URL = os.environ.get("CHUNKER_API_URL", "https://chunker-api.108labs.ai")
+# Chunker API — resolved from plugin_settings or env vars
+CHUNKER_API_URL = resolve_plugin_setting(PLUGIN_NAME, "chunker_api_url") or "https://chunker-api.108labs.ai"
 
 
 def _api_key() -> str:
-    return resolve_plugin_setting(PLUGIN_NAME, "CHUNKER_API_KEY") or ""
+    return resolve_plugin_setting(PLUGIN_NAME, "chunker_api_key") or ""
 
 SUPPORTED_TYPES = {
     "application/pdf": ".pdf",

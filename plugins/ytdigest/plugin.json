@@ -11,7 +11,7 @@
     [
       [
         "key",
-        "MINIFLUX_URL"
+        "miniflux_url"
       ],
       [
         "label",
@@ -33,7 +33,7 @@
     [
       [
         "key",
-        "MINIFLUX_API_KEY"
+        "miniflux_api_key"
       ],
       [
         "label",
@@ -55,7 +55,7 @@
     [
       [
         "key",
-        "YTDIGEST_MIN_DURATION"
+        "ytdigest_min_duration"
       ],
       [
         "label",

@@ -11,7 +11,7 @@
     [
       [
         "key",
-        "NOTION_API_KEY"
+        "notion_api_key"
       ],
       [
         "label",

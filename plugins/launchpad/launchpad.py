@@ -62,13 +62,14 @@ def _db():
 
 def _get_config():
     """Read API config. Returns (api_url, api_key) or raises."""
-    api_url = os.environ.get("LAUNCHPAD_API_URL", "").rstrip("/")
-    api_key = os.environ.get("LAUNCHPAD_API_KEY", "")
+    from cupbots.helpers.db import resolve_plugin_setting
+    api_url = (resolve_plugin_setting("launchpad", "launchpad_api_url") or "").rstrip("/")
+    api_key = resolve_plugin_setting("launchpad", "launchpad_api_key") or ""
     if not api_url or not api_key:
         raise ValueError(
-            "Launchpad not configured. Run:\n"
-            "/plugin config launchpad LAUNCHPAD_API_URL <url>\n"
-            "/plugin config launchpad LAUNCHPAD_API_KEY <key>"
+            "Launchpad not configured. Set in plugin_settings.launchpad in config.yaml:\n"
+            "  launchpad_api_url: <url>\n"
+            "  launchpad_api_key: <key>"
         )
     return api_url, api_key
 

@@ -58,9 +58,13 @@ def _db():
 # ---------------------------------------------------------------------------
 
 def _get_api_key() -> str:
-    key = os.environ.get("MDPUBS_API_KEY", "")
+    try:
+        from cupbots.helpers.db import resolve_plugin_setting
+        key = resolve_plugin_setting("mdpubs", "mdpubs_api_key") or ""
+    except Exception:
+        key = ""
     if not key:
-        raise RuntimeError("MDPUBS_API_KEY not set in environment")
+        raise RuntimeError("Set MDPUBS_API_KEY in plugin_settings.mdpubs in config.yaml")
     return key
 
 
@@ -168,7 +172,12 @@ async def publish_or_fallback(key: str, title: str, content: str,
 
     Returns (url_or_none, content).
     """
-    if not os.environ.get("MDPUBS_API_KEY"):
+    try:
+        _get_api_key()
+        _has_key = True
+    except Exception:
+        _has_key = False
+    if not _has_key:
         return None, content
 
     try:
