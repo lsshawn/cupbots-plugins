@@ -10,6 +10,12 @@ Commands:
   /mailwatch start            — Test connection and begin polling
   /mailwatch stop             — Stop polling
   /mailwatch test <rule_id>   — Test a rule against recent emails
+  /mailwatch account add <email> <app_password> [host]  — Add a Gmail account
+  /mailwatch account remove <email>  — Remove an account
+  /mailwatch account list     — List all accounts
+  /mailwatch send <to> <subject> -- <body>  — Send email via AgentMail
+  /mailwatch sent [N]         — Show N most recent sent emails (default 10)
+  /mailwatch autosend         — Show auto-send rules
 
 Rule format: /mailwatch add <type> [field] <pattern> -> <action>
   Types: keyword, regex, attachment, ai
@@ -22,13 +28,18 @@ Examples:
   /mailwatch add attachment .ics -> calendar
   /mailwatch add ai "is this a client project update?" -> crm_update
   /mailwatch add keyword any "urgent" -> notify
+  /mailwatch account add user@gmail.com abcd-efgh-ijkl-mnop
+  /mailwatch account add user@company.com p4ssw0rd imap.company.com
+  /mailwatch send user@example.com "Meeting follow-up" -- Hi, just following up...
 """
 
 import email as email_lib
+import email.utils
 import imaplib
 import json
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from email import policy
 
@@ -45,6 +56,7 @@ VALID_RULE_TYPES = ("keyword", "regex", "attachment", "ai")
 VALID_FIELDS = ("subject", "sender", "body", "any")
 VALID_ACTIONS = ("notify", "calendar", "crm_update", "draft_reply", "custom")
 MVP_ACTIONS = ("notify", "calendar")
+_APPROVAL_TTL = 3600  # 1 hour, matches wa_router
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +71,7 @@ def create_tables(conn):
             email TEXT NOT NULL,
             imap_host TEXT NOT NULL DEFAULT 'imap.gmail.com',
             imap_port INTEGER NOT NULL DEFAULT 993,
+            imap_password TEXT NOT NULL DEFAULT '',
             active INTEGER NOT NULL DEFAULT 1,
             poll_interval INTEGER NOT NULL DEFAULT 60,
             last_poll TEXT NOT NULL DEFAULT '',
@@ -100,6 +113,19 @@ def create_tables(conn):
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_processed_uid
             ON processed_emails (company_id, mailbox_id, uid);
+
+        CREATE TABLE IF NOT EXISTS sent_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            to_addr TEXT NOT NULL,
+            subject TEXT NOT NULL DEFAULT '',
+            reply_to_addr TEXT NOT NULL DEFAULT '',
+            in_reply_to TEXT NOT NULL DEFAULT '',
+            agentmail_message_id TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT '',
+            auto_sent INTEGER NOT NULL DEFAULT 0,
+            approved_by TEXT NOT NULL DEFAULT '',
+            sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
     """)
 
 
@@ -107,26 +133,253 @@ def _db():
     return get_plugin_db(PLUGIN_NAME)
 
 
+_migrated = False
+
+
+def _migrate_db():
+    """Add imap_password column if missing (for existing installs)."""
+    global _migrated
+    if _migrated:
+        return
+    try:
+        conn = _db()
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(mailboxes)").fetchall()]
+        if "imap_password" not in cols:
+            conn.execute("ALTER TABLE mailboxes ADD COLUMN imap_password TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+            log.info("Migrated mailboxes table: added imap_password column")
+    except Exception as e:
+        log.warning("Migration check failed: %s", e)
+    _migrated = True
+
+
 # ---------------------------------------------------------------------------
 # Config helpers
 # ---------------------------------------------------------------------------
 
-def _get_credentials():
+def _get_default_credentials():
+    """Get shared credentials from plugin config (backward compat)."""
     email_addr = resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_EMAIL") or ""
     password = resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_APP_PASSWORD") or ""
     host = resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_IMAP_HOST") or "imap.gmail.com"
     return email_addr, password, host, 993
 
 
+def _get_mailbox_credentials(mb: dict) -> tuple[str, str, str, int]:
+    """Get credentials for a specific mailbox. Falls back to shared config if no per-mailbox password."""
+    email_addr = mb.get("email", "")
+    password = mb.get("imap_password", "")
+    host = mb.get("imap_host", "imap.gmail.com")
+    port = mb.get("imap_port", 993)
+
+    if not password:
+        # Fallback to shared plugin config
+        _, default_pw, default_host, default_port = _get_default_credentials()
+        password = default_pw
+        if not host or host == "imap.gmail.com":
+            host = default_host or "imap.gmail.com"
+        if not port:
+            port = default_port
+
+    return email_addr, password, host, port
+
+
 def _get_notify_chat():
     return resolve_plugin_setting(PLUGIN_NAME, "MAILWATCH_NOTIFY_CHAT") or ""
 
 
-def _get_mailbox(company_id: str) -> dict | None:
-    row = _db().execute(
-        "SELECT * FROM mailboxes WHERE company_id = ? ORDER BY id LIMIT 1",
+# ---------------------------------------------------------------------------
+# AgentMail outbound
+# ---------------------------------------------------------------------------
+
+_agentmail_client = None
+
+
+def _get_agentmail():
+    """Lazy-init async AgentMail client. Returns None if not configured."""
+    global _agentmail_client
+    if _agentmail_client is None:
+        api_key = resolve_plugin_setting(PLUGIN_NAME, "AGENTMAIL_API_KEY")
+        if api_key:
+            try:
+                from agentmail import AsyncAgentMail
+                _agentmail_client = AsyncAgentMail(api_key=api_key)
+            except ImportError:
+                log.warning("agentmail package not installed — pip install agentmail")
+                return None
+    return _agentmail_client
+
+
+def _extract_email_addr(header_value: str) -> str:
+    """Extract bare email address from a header like 'Name <user@example.com>'."""
+    _, addr = email.utils.parseaddr(header_value)
+    return addr
+
+
+def _get_auto_send_rules() -> list[dict]:
+    """Load auto-send rules from config.yaml."""
+    from cupbots.config import get_config
+    settings = get_config().get("plugin_settings", {}).get("mailwatch", {})
+    return settings.get("auto_send_rules", [])
+
+
+def _should_auto_send(category: str) -> bool:
+    """Check if a category should auto-send. Default: False (require approval)."""
+    for rule in _get_auto_send_rules():
+        if rule.get("category") == category:
+            return rule.get("auto_send", False)
+    return False
+
+
+async def _agentmail_send(
+    to: str,
+    subject: str,
+    body: str,
+    reply_to: str = "",
+    in_reply_to: str = "",
+    references: str = "",
+    category: str = "",
+    auto_sent: bool = False,
+    approved_by: str = "",
+) -> dict | None:
+    """Send email via AgentMail. Returns send result or None on failure."""
+    client = _get_agentmail()
+    if not client:
+        log.warning("AgentMail not configured — cannot send email")
+        return None
+
+    inbox_id = resolve_plugin_setting(PLUGIN_NAME, "AGENTMAIL_INBOX_ID")
+    if not inbox_id:
+        log.warning("AGENTMAIL_INBOX_ID not configured")
+        return None
+
+    # Resolve reply-to: use provided (from inbound email), else config fallback
+    if not reply_to:
+        reply_to = resolve_plugin_setting(PLUGIN_NAME, "AGENTMAIL_REPLY_TO") or ""
+
+    # Threading headers for In-Reply-To / References
+    headers = {}
+    if in_reply_to:
+        headers["In-Reply-To"] = in_reply_to
+        headers["References"] = references or in_reply_to
+
+    try:
+        result = await client.inboxes.messages.send(
+            inbox_id=inbox_id,
+            to=to,
+            subject=subject,
+            text=body,
+            reply_to=reply_to or None,
+            headers=headers or None,
+        )
+
+        # Record in DB
+        msg_id = getattr(result, "message_id", "") or ""
+        try:
+            _db().execute(
+                "INSERT INTO sent_emails "
+                "(to_addr, subject, reply_to_addr, in_reply_to, agentmail_message_id, "
+                "category, auto_sent, approved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (to, subject[:200], reply_to, in_reply_to, str(msg_id),
+                 category, 1 if auto_sent else 0, approved_by),
+            )
+            _db().commit()
+        except Exception as e:
+            log.warning("Failed to record sent email: %s", e)
+
+        # Emit event
+        try:
+            from cupbots.helpers.events import emit
+            await emit("email.sent", {
+                "to": to,
+                "subject": subject,
+                "reply_to": reply_to,
+                "category": category,
+                "auto_sent": auto_sent,
+            })
+        except Exception as e:
+            log.debug("email.sent event emission failed: %s", e)
+
+        log.info("Email sent via AgentMail to %s — Re: %s", to, subject[:60])
+        return {"message_id": msg_id, "status": "sent"}
+
+    except Exception as e:
+        log.error("AgentMail send failed: %s", e)
+        return None
+
+
+# Pending email approvals (msg_id -> email data)
+_pending_email_approvals: dict[str, dict] = {}
+
+
+def _cleanup_expired_approvals():
+    """Remove approvals older than TTL."""
+    now = time.time()
+    expired = [k for k, v in _pending_email_approvals.items()
+               if now - v.get("timestamp", 0) > _APPROVAL_TTL]
+    for k in expired:
+        del _pending_email_approvals[k]
+
+
+async def handle_approval(data: dict, wa_api_url: str) -> bool:
+    """Handle WhatsApp reaction approval for email drafts."""
+    _cleanup_expired_approvals()
+
+    reacted_msg_id = data.get("reactedMsgId", "")
+    emoji_val = data.get("emoji", "")
+
+    pending = _pending_email_approvals.pop(reacted_msg_id, None)
+    if not pending:
+        return False  # not ours
+
+    chat = _get_notify_chat()
+    ctx = WhatsAppReplyContext(chat, wa_api_url) if chat else None
+
+    if emoji_val in ("\U0001f44d", "\u2705", "\U0001f44c"):  # 👍 ✅ 👌
+        result = await _agentmail_send(
+            to=pending["to"],
+            subject=pending["subject"],
+            body=pending["body"],
+            reply_to=pending.get("reply_to", ""),
+            in_reply_to=pending.get("in_reply_to", ""),
+            references=pending.get("references", ""),
+            category=pending.get("category", ""),
+            approved_by=data.get("sender", ""),
+        )
+        if ctx:
+            if result:
+                await ctx.reply_text(f"Email sent to {pending['to']}")
+            else:
+                await ctx.reply_text(f"Failed to send email to {pending['to']}")
+    else:
+        if ctx:
+            await ctx.reply_text(f"Email draft discarded for {pending['to']}")
+
+    return True
+
+
+def _get_mailboxes(company_id: str) -> list[dict]:
+    """Get all mailboxes for a company."""
+    _migrate_db()
+    rows = _db().execute(
+        "SELECT * FROM mailboxes WHERE company_id = ? ORDER BY id",
         (company_id,),
-    ).fetchone()
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _get_mailbox(company_id: str, mailbox_id: int | None = None) -> dict | None:
+    _migrate_db()
+    if mailbox_id:
+        row = _db().execute(
+            "SELECT * FROM mailboxes WHERE company_id = ? AND id = ?",
+            (company_id, mailbox_id),
+        ).fetchone()
+    else:
+        row = _db().execute(
+            "SELECT * FROM mailboxes WHERE company_id = ? ORDER BY id LIMIT 1",
+            (company_id,),
+        ).fetchone()
     return dict(row) if row else None
 
 
@@ -134,10 +387,11 @@ def _get_or_create_mailbox(company_id: str) -> dict:
     mb = _get_mailbox(company_id)
     if mb:
         return mb
-    email_addr, _, host, port = _get_credentials()
+    email_addr, password, host, port = _get_default_credentials()
+    _migrate_db()
     _db().execute(
-        "INSERT INTO mailboxes (company_id, email, imap_host, imap_port) VALUES (?, ?, ?, ?)",
-        (company_id, email_addr, host, port),
+        "INSERT INTO mailboxes (company_id, email, imap_host, imap_port, imap_password) VALUES (?, ?, ?, ?, ?)",
+        (company_id, email_addr, host, port, password),
     )
     _db().commit()
     return dict(_db().execute(
@@ -361,14 +615,88 @@ async def _action_draft_reply(email_data: dict, rule: dict, company_id: str):
         max_tokens=1024,
     )
 
+    if not draft:
+        return
+
     chat = _get_notify_chat()
-    if chat and draft:
+    if not chat:
+        return
+
+    # Dynamic reply-to: use the address this email was sent TO (the IMAP mailbox)
+    reply_to = _extract_email_addr(email_data.get("to", ""))
+    reply_subject = f"Re: {email_data['subject']}"
+    sender_addr = _extract_email_addr(email_data["sender"])
+    in_reply_to = email_data.get("message_id", "")
+
+    # If AgentMail is configured, use auto-send or approval flow
+    if _get_agentmail():
+        # Classify email category for auto-send rules
+        category = "other"
+        try:
+            cat_result = await ask_llm(
+                f"Classify this email into exactly one category. Reply with ONLY the category name.\n"
+                f"Categories: meeting_confirmation, invoice_acknowledgment, client_update, "
+                f"general_inquiry, other\n\n"
+                f"Subject: {email_data['subject']}\nBody: {email_data['body_text'][:1000]}",
+                max_tokens=20,
+            )
+            if cat_result:
+                category = cat_result.strip().lower().replace(" ", "_")
+        except Exception:
+            pass
+
+        if _should_auto_send(category):
+            # Auto-send via AgentMail
+            result = await _agentmail_send(
+                to=sender_addr,
+                subject=reply_subject,
+                body=draft,
+                reply_to=reply_to,
+                in_reply_to=in_reply_to,
+                category=category,
+                auto_sent=True,
+            )
+            ctx = WhatsAppReplyContext(chat, WA_API_URL)
+            if result:
+                await ctx.reply_text(
+                    f"Auto-sent [{category}] to: {sender_addr}\n"
+                    f"{reply_subject}\n---\n{draft[:500]}"
+                )
+            else:
+                await ctx.reply_text(
+                    f"Failed to auto-send to {sender_addr}\n"
+                    f"{reply_subject}\n---\n{draft[:500]}\n---\n(Send failed)"
+                )
+        else:
+            # Queue for WhatsApp approval
+            ctx = WhatsAppReplyContext(chat, WA_API_URL)
+            approval_text = (
+                f"[Email Draft] [{category}]\n"
+                f"To: {sender_addr}\n"
+                f"{reply_subject}\n"
+                f"Reply-To: {reply_to}\n---\n{draft}\n---\n"
+                f"React \U0001f44d to send, \U0001f44e to discard"
+            )
+            msg_id = await ctx.send_and_get_id(approval_text)
+            if msg_id:
+                _pending_email_approvals[msg_id] = {
+                    "to": sender_addr,
+                    "subject": reply_subject,
+                    "body": draft,
+                    "reply_to": reply_to,
+                    "in_reply_to": in_reply_to,
+                    "references": in_reply_to,
+                    "category": category,
+                    "timestamp": time.time(),
+                }
+    else:
+        # No AgentMail — fallback to current behavior (display-only draft)
         ctx = WhatsAppReplyContext(chat, WA_API_URL)
         await ctx.reply_text(
             f"Draft reply to: {email_data['sender']}\n"
             f"Re: {email_data['subject']}\n"
             f"---\n{draft}\n---\n"
-            f"(Review only)"
+            f"(Review only — configure AGENTMAIL_API_KEY to enable sending)"
         )
 
 
@@ -407,25 +735,33 @@ _ACTIONS = {
 # IMAP connection
 # ---------------------------------------------------------------------------
 
-def _connect_imap() -> imaplib.IMAP4_SSL:
-    email_addr, password, host, port = _get_credentials()
+def _connect_imap(mb: dict | None = None) -> imaplib.IMAP4_SSL:
+    """Connect to IMAP. Uses per-mailbox credentials if mb is provided, else shared config."""
+    if mb:
+        email_addr, password, host, port = _get_mailbox_credentials(mb)
+    else:
+        email_addr, password, host, port = _get_default_credentials()
     if not email_addr or not password:
-        raise ValueError("Email credentials not configured. Use /config mailwatch")
+        raise ValueError("Email credentials not configured. Use /mailwatch account add or /config mailwatch")
     conn = imaplib.IMAP4_SSL(host, port)
     conn.login(email_addr, password)
     return conn
 
 
-def _test_connection() -> str:
-    """Test IMAP connection. Returns status message."""
+def _test_connection(mb: dict | None = None) -> str:
+    """Test IMAP connection for a specific mailbox or default. Returns status message."""
     try:
-        conn = _connect_imap()
+        conn = _connect_imap(mb)
         conn.select("INBOX", readonly=True)
         status, data = conn.search(None, "ALL")
         total = len(data[0].split()) if data[0] else 0
         conn.close()
         conn.logout()
-        email_addr, _, host, _ = _get_credentials()
+        if mb:
+            email_addr = mb.get("email", "")
+            host = mb.get("imap_host", "")
+        else:
+            email_addr, _, host, _ = _get_default_credentials()
         return f"Connected to {email_addr} ({host}). {total} total emails in inbox."
     except Exception as e:
         return f"Connection failed: {e}"
@@ -440,13 +776,13 @@ async def _handle_poll_job(payload: dict, bot=None):
     company_id = payload.get("company_id", "")
     mailbox_id = payload.get("mailbox_id", 1)
 
-    mb = _get_mailbox(company_id)
+    mb = _get_mailbox(company_id, mailbox_id)
     if not mb or not mb["active"]:
-        log.info("Mailbox inactive for %s, not rescheduling", company_id)
+        log.info("Mailbox %s inactive for %s, not rescheduling", mailbox_id, company_id)
         return
 
     try:
-        conn = _connect_imap()
+        conn = _connect_imap(mb)
         conn.select("INBOX")
 
         _, data = conn.search(None, "UNSEEN")
@@ -506,6 +842,32 @@ async def _handle_poll_job(payload: dict, bot=None):
                     except Exception as e:
                         log.error("Action %s failed for rule %d: %s",
                                   matched_rule["action"], matched_rule["id"], e)
+
+                # Emit events for inter-plugin hooks (wiki, etc.)
+                try:
+                    from cupbots.helpers.events import emit
+                    await emit("email.received", {
+                        "company_id": company_id,
+                        "subject": email_data["subject"],
+                        "sender": email_data["sender"],
+                        "body_text": email_data["body_text"][:5000],
+                        "attachments": [
+                            {"filename": a["filename"], "content_type": a["content_type"]}
+                            for a in email_data["attachments"]
+                        ],
+                        "rule_action": matched_rule["action"],
+                    })
+                    for att in email_data["attachments"]:
+                        if att["filename"].lower().endswith(".ics") or att["content_type"] == "text/calendar":
+                            att_data = att.get("data", b"")
+                            await emit("email.ics_received", {
+                                "company_id": company_id,
+                                "subject": email_data["subject"],
+                                "sender": email_data["sender"],
+                                "ics_text": att_data.decode("utf-8", errors="replace") if isinstance(att_data, bytes) else str(att_data),
+                            })
+                except Exception as e:
+                    log.debug("Event emission failed (non-critical): %s", e)
 
                 # Record processed
                 _db().execute(
@@ -682,9 +1044,9 @@ async def handle_command(msg, reply) -> bool:
         return True
 
     if sub == "status":
-        mb = _get_mailbox(company_id)
-        if not mb:
-            await reply.reply_text("No mailbox configured. Use /mailwatch start")
+        mailboxes = _get_mailboxes(company_id)
+        if not mailboxes:
+            await reply.reply_text("No mailbox configured. Use /mailwatch account add or /mailwatch start")
             return True
         rule_count = _db().execute(
             "SELECT COUNT(*) as c FROM rules WHERE company_id = ? AND active = 1",
@@ -694,16 +1056,18 @@ async def handle_command(msg, reply) -> bool:
             "SELECT COUNT(*) as c FROM processed_emails WHERE company_id = ?",
             (company_id,),
         ).fetchone()["c"]
-        status = "active" if mb["active"] else "stopped"
-        last_poll = mb["last_poll"] or "never"
-        error = f"\nLast error: {mb['last_error']}" if mb["last_error"] else ""
-        await reply.reply_text(
-            f"Mailwatch: {status}\n"
-            f"Email: {mb['email']}\n"
-            f"Last poll: {last_poll}\n"
-            f"Rules: {rule_count} active\n"
-            f"Processed: {processed} emails{error}"
-        )
+        lines = []
+        for mb in mailboxes:
+            status = "active" if mb["active"] else "stopped"
+            last_poll = mb["last_poll"] or "never"
+            error = f" | Error: {mb['last_error']}" if mb["last_error"] else ""
+            has_pw = "yes" if mb.get("imap_password") else "shared"
+            lines.append(
+                f"#{mb['id']} {mb['email']} ({mb['imap_host']})\n"
+                f"  Status: {status} | Password: {has_pw} | Last poll: {last_poll}{error}"
+            )
+        header = f"*Mailwatch* — {len(mailboxes)} account(s), {rule_count} rules, {processed} processed\n"
+        await reply.reply_text(header + "\n".join(lines))
         return True
 
     if sub == "rules":
@@ -759,37 +1123,117 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text(f"Removed rule #{rid}" if deleted else f"Rule #{rid} not found.")
         return True
 
-    if sub == "start":
-        email_addr, password, _, _ = _get_credentials()
-        if not email_addr or not password:
+    if sub == "account":
+        if len(args) < 2:
             await reply.reply_text(
-                "Configure credentials first:\n"
-                "/config mailwatch MAILWATCH_EMAIL your@gmail.com\n"
-                "/config mailwatch MAILWATCH_APP_PASSWORD your-app-password\n"
-                "/config mailwatch MAILWATCH_NOTIFY_CHAT your-jid"
+                "Account management:\n"
+                "  /mailwatch account add <email> <app_password> [imap_host]\n"
+                "  /mailwatch account remove <email>\n"
+                "  /mailwatch account list"
             )
             return True
 
-        await reply.send_typing()
-        result = _test_connection()
-        if "failed" in result.lower():
-            await reply.reply_text(result)
+        acct_sub = args[1].lower()
+
+        if acct_sub == "add" and len(args) >= 4:
+            acct_email = args[2]
+            acct_password = args[3]
+            acct_host = args[4] if len(args) > 4 else "imap.gmail.com"
+
+            # Check for duplicate
+            existing = _db().execute(
+                "SELECT id FROM mailboxes WHERE company_id = ? AND email = ?",
+                (company_id, acct_email),
+            ).fetchone()
+            if existing:
+                await reply.reply_text(f"Account {acct_email} already exists (#{existing['id']}). Remove it first.")
+                return True
+
+            # Test connection before saving
+            await reply.send_typing()
+            test_mb = {"email": acct_email, "imap_password": acct_password, "imap_host": acct_host, "imap_port": 993}
+            result = _test_connection(test_mb)
+            if "failed" in result.lower():
+                await reply.reply_text(f"Connection test failed for {acct_email}:\n{result}")
+                return True
+
+            _migrate_db()
+            _db().execute(
+                "INSERT INTO mailboxes (company_id, email, imap_host, imap_port, imap_password) VALUES (?, ?, ?, ?, ?)",
+                (company_id, acct_email, acct_host, 993, acct_password),
+            )
+            _db().commit()
+            await reply.reply_text(f"Account added: {acct_email} ({acct_host})\n{result}\n\nUse /mailwatch start to begin polling all accounts.")
             return True
 
-        mb = _get_or_create_mailbox(company_id)
-        _db().execute(
-            "UPDATE mailboxes SET active = 1, last_error = '' WHERE id = ?",
-            (mb["id"],),
-        )
-        _db().commit()
+        if acct_sub == "remove" and len(args) >= 3:
+            acct_email = args[2]
+            row = _db().execute(
+                "SELECT id FROM mailboxes WHERE company_id = ? AND email = ?",
+                (company_id, acct_email),
+            ).fetchone()
+            if not row:
+                await reply.reply_text(f"Account not found: {acct_email}")
+                return True
+            _db().execute("DELETE FROM mailboxes WHERE id = ?", (row["id"],))
+            _db().commit()
+            await reply.reply_text(f"Account removed: {acct_email}")
+            return True
 
-        # Enqueue first poll
-        enqueue(
-            "mailwatch_poll",
-            {"company_id": company_id, "mailbox_id": mb["id"]},
-            run_at=datetime.now() + timedelta(seconds=5),
-            max_attempts=3,
-        )
+        if acct_sub == "list":
+            mailboxes = _get_mailboxes(company_id)
+            if not mailboxes:
+                await reply.reply_text("No accounts configured.\nAdd one: /mailwatch account add <email> <app_password>")
+                return True
+            lines = ["*Email Accounts:*\n"]
+            for mb in mailboxes:
+                status = "active" if mb["active"] else "stopped"
+                has_pw = "per-account" if mb.get("imap_password") else "shared config"
+                lines.append(f"#{mb['id']} {mb['email']} ({mb['imap_host']}) — {status}, creds: {has_pw}")
+            await reply.reply_text("\n".join(lines))
+            return True
+
+        await reply.reply_text("Usage: /mailwatch account add|remove|list")
+        return True
+
+    if sub == "start":
+        mailboxes = _get_mailboxes(company_id)
+        if not mailboxes:
+            # Try legacy shared config
+            email_addr, password, _, _ = _get_default_credentials()
+            if not email_addr or not password:
+                await reply.reply_text(
+                    "No accounts configured. Add one:\n"
+                    "/mailwatch account add your@gmail.com your-app-password\n\n"
+                    "Or use shared config:\n"
+                    "/config mailwatch MAILWATCH_EMAIL your@gmail.com\n"
+                    "/config mailwatch MAILWATCH_APP_PASSWORD your-app-password"
+                )
+                return True
+            # Create from shared config (backward compat)
+            mailboxes = [_get_or_create_mailbox(company_id)]
+
+        await reply.send_typing()
+        results = []
+        for mb in mailboxes:
+            result = _test_connection(mb)
+            if "failed" in result.lower():
+                results.append(f"{mb['email']}: {result}")
+                continue
+
+            _db().execute(
+                "UPDATE mailboxes SET active = 1, last_error = '' WHERE id = ?",
+                (mb["id"],),
+            )
+            _db().commit()
+
+            enqueue(
+                "mailwatch_poll",
+                {"company_id": company_id, "mailbox_id": mb["id"]},
+                run_at=datetime.now() + timedelta(seconds=5),
+                max_attempts=3,
+            )
+            results.append(f"{mb['email']}: {result} — polling every {mb['poll_interval']}s")
 
         # Start watchdog if not already running
         from cupbots.helpers.db import get_fw_db
@@ -803,15 +1247,16 @@ async def handle_command(msg, reply) -> bool:
                 max_attempts=1,
             )
 
-        await reply.reply_text(f"{result}\nPolling started (every {mb['poll_interval']}s).")
+        await reply.reply_text("\n".join(results))
         return True
 
     if sub == "stop":
-        mb = _get_mailbox(company_id)
-        if mb:
+        mailboxes = _get_mailboxes(company_id)
+        for mb in mailboxes:
             _db().execute("UPDATE mailboxes SET active = 0 WHERE id = ?", (mb["id"],))
-            _db().commit()
-        await reply.reply_text("Polling stopped.")
+        _db().commit()
+        count = len(mailboxes)
+        await reply.reply_text(f"Polling stopped for {count} account(s).")
         return True
 
     if sub == "test":
@@ -830,7 +1275,8 @@ async def handle_command(msg, reply) -> bool:
 
         await reply.send_typing()
         try:
-            conn = _connect_imap()
+            mb = _get_mailbox(company_id)
+            conn = _connect_imap(mb)
             conn.select("INBOX", readonly=True)
             _, data = conn.search(None, "ALL")
             all_uids = data[0].split() if data[0] else []
@@ -857,6 +1303,84 @@ async def handle_command(msg, reply) -> bool:
                 await reply.reply_text(f"Rule #{rid} matched 0/5 recent emails.")
         except Exception as e:
             await reply.reply_text(f"Test failed: {e}")
+        return True
+
+    if sub == "send":
+        # /mailwatch send <to> <subject> -- <body>
+        rest = " ".join(args[1:])
+        if " -- " not in rest or len(args) < 4:
+            await reply.reply_text(
+                "Usage: /mailwatch send <to> <subject> -- <body>\n"
+                "Example: /mailwatch send user@example.com \"Meeting follow-up\" -- Hi, just following up..."
+            )
+            return True
+
+        to_addr = args[1]
+        subject_and_body = " ".join(args[2:])
+        parts = subject_and_body.split(" -- ", 1)
+        subject = parts[0].strip().strip('"')
+        body = parts[1].strip() if len(parts) > 1 else ""
+
+        if not body:
+            await reply.reply_text("Missing email body after '--'")
+            return True
+
+        await reply.send_typing()
+        result = await _agentmail_send(
+            to=to_addr,
+            subject=subject,
+            body=body,
+            category="manual",
+        )
+        if result:
+            await reply.reply_text(f"Email sent to {to_addr}\nSubject: {subject}")
+        else:
+            await reply.reply_text(
+                "Failed to send. Check AGENTMAIL_API_KEY and AGENTMAIL_INBOX_ID config."
+            )
+        return True
+
+    if sub == "sent":
+        limit = 10
+        if len(args) > 1 and args[1].isdigit():
+            limit = min(int(args[1]), 50)
+
+        rows = _db().execute(
+            "SELECT * FROM sent_emails ORDER BY sent_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        if not rows:
+            await reply.reply_text("No sent emails yet.")
+            return True
+
+        lines = [f"*Recent sent emails ({len(rows)}):*\n"]
+        for r in rows:
+            auto = "auto" if r["auto_sent"] else "approved"
+            cat = f" [{r['category']}]" if r["category"] else ""
+            lines.append(
+                f"#{r['id']} {r['sent_at'][:16]} — {r['to_addr']}\n"
+                f"  {r['subject'][:60]}{cat} ({auto})"
+            )
+        await reply.reply_text("\n".join(lines))
+        return True
+
+    if sub == "autosend":
+        rules = _get_auto_send_rules()
+        if not rules:
+            await reply.reply_text(
+                "No auto-send rules configured.\n"
+                "Add to config.yaml under plugin_settings.mailwatch.auto_send_rules:\n"
+                "  - category: meeting_confirmation\n"
+                "    auto_send: true"
+            )
+            return True
+
+        lines = ["*Auto-send rules:*\n"]
+        for r in rules:
+            status = "auto-send" if r.get("auto_send") else "approval"
+            lines.append(f"  {r.get('category', '?')} → {status}")
+        lines.append("\nUnlisted categories require approval.")
+        await reply.reply_text("\n".join(lines))
         return True
 
     # Unknown subcommand

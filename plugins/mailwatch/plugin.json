@@ -1,101 +1,23 @@
 {
   "name": "mailwatch",
-  "description": "Watch email inboxes and process messages with rules — keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies",
-  "version": "1.0.0",
+  "description": "Watch email inboxes and process messages with rules — keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Send replies via AgentMail with auto-send rules or WhatsApp approval.",
+  "version": "1.1.0",
   "author": "CupBots",
   "commands": [
     "/mailwatch"
   ],
-  "intent": "Monitor email inboxes and forward matching emails to WhatsApp",
+  "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and send replies via AgentMail",
+  "pip_dependencies": ["agentmail"],
   "config": [
-    [
-      [
-        "key",
-        "MAILWATCH_IMAP_HOST"
-      ],
-      [
-        "label",
-        "IMAP Host"
-      ],
-      [
-        "type",
-        "text"
-      ],
-      [
-        "required",
-        true
-      ],
-      [
-        "help",
-        "e.g. imap.gmail.com"
-      ]
-    ],
-    [
-      [
-        "key",
-        "MAILWATCH_EMAIL"
-      ],
-      [
-        "label",
-        "Email Address"
-      ],
-      [
-        "type",
-        "text"
-      ],
-      [
-        "required",
-        true
-      ],
-      [
-        "help",
-        "The mailbox email address to watch"
-      ]
-    ],
-    [
-      [
-        "key",
-        "MAILWATCH_APP_PASSWORD"
-      ],
-      [
-        "label",
-        "Email App Password"
-      ],
-      [
-        "type",
-        "secret"
-      ],
-      [
-        "required",
-        true
-      ],
-      [
-        "help",
-        "Gmail: myaccount.google.com/apppasswords"
-      ]
-    ],
-    [
-      [
-        "key",
-        "MAILWATCH_NOTIFY_CHAT"
-      ],
-      [
-        "label",
-        "WhatsApp Notification Chat"
-      ],
-      [
-        "type",
-        "text"
-      ],
-      [
-        "required",
-        true
-      ],
-      [
-        "help",
-        "WhatsApp JID to send notifications to"
-      ]
-    ]
+    [["key", "MAILWATCH_IMAP_HOST"], ["label", "IMAP Host"], ["type", "text"], ["required", true], ["help", "e.g. imap.gmail.com"]],
+    [["key", "MAILWATCH_EMAIL"], ["label", "Email Address"], ["type", "text"], ["required", true], ["help", "The mailbox email address to watch"]],
+    [["key", "MAILWATCH_APP_PASSWORD"], ["label", "Email App Password"], ["type", "secret"], ["required", true], ["help", "Gmail: myaccount.google.com/apppasswords"]],
+    [["key", "MAILWATCH_NOTIFY_CHAT"], ["label", "WhatsApp Notification Chat"], ["type", "text"], ["required", true], ["help", "WhatsApp JID to send notifications to"]],
+    [["key", "AGENTMAIL_API_KEY"], ["label", "AgentMail API Key"], ["type", "secret"], ["required", false], ["help", "API key from agentmail.to — enables outbound email sending"]],
+    [["key", "AGENTMAIL_INBOX_ID"], ["label", "AgentMail Inbox ID"], ["type", "text"], ["required", false], ["help", "AgentMail inbox ID for outbound emails"]],
+    [["key", "AGENTMAIL_ADDRESS"], ["label", "AgentMail From Address"], ["type", "text"], ["required", false], ["help", "Outbound from address, e.g. pa@ai.cupbots.com"]],
+    [["key", "AGENTMAIL_DISPLAY_NAME"], ["label", "AgentMail Display Name"], ["type", "text"], ["required", false], ["help", "Sender display name, e.g. ClientName Assistant"]],
+    [["key", "AGENTMAIL_REPLY_TO"], ["label", "AgentMail Reply-To (fallback)"], ["type", "text"], ["required", false], ["help", "Fallback reply-to for new emails (replies auto-use the inbound address)"]]
   ],
   "free": false,
   "price": "$29",
@@ -105,6 +27,6 @@
     "icon": "mail",
     "tagline": "Turn your inbox into an automation engine",
     "category": "productivity",
-    "long_description": "Watch your email inbox and process messages automatically based on rules you define. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
+    "long_description": "Watch your email inbox and process messages automatically based on rules you define. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies with auto-send or WhatsApp approval via AgentMail. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
   }
 }
