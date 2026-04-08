@@ -239,8 +239,7 @@ async def _expand_keywords(query: str) -> list[str]:
         f"No explanation, just the JSON array."
     )
     try:
-        resp = await ask_llm(prompt, model="claude-haiku-4-5-20251001",
-                             max_tokens=100, json_mode=True)
+        resp = await ask_llm(prompt, max_tokens=100, json_mode=True)
         if isinstance(resp, list):
             return [str(k) for k in resp[:2]]
         if isinstance(resp, str):
