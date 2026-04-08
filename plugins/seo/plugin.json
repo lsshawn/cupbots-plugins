@@ -1,0 +1,31 @@
+{
+  "name": "seo",
+  "description": "SEO monitoring, keyword tracking, content decay detection, and blog draft generation. Supports GA4 and Umami analytics backends. Delivers weekly intelligence reports via WhatsApp.",
+  "version": "1.0.0",
+  "author": "CupBots",
+  "commands": ["/seo"],
+  "intent": "SEO analytics, keyword tracking, content decay, blog drafts, Google Analytics, Umami, traffic reports, SERP rankings",
+  "not_intent": "Social media posting, advertising, PPC campaigns",
+  "config": [
+    {"key": "google_client_id", "label": "Google OAuth Client ID", "type": "text", "required": false, "help": "For GA4 backend. Create at console.cloud.google.com"},
+    {"key": "google_client_secret", "label": "Google OAuth Client Secret", "type": "secret", "required": false, "help": "For GA4 backend"},
+    {"key": "dataforseo_login", "label": "DataForSEO Login", "type": "text", "required": false, "help": "Email for DataForSEO API (keyword tracking)"},
+    {"key": "dataforseo_password", "label": "DataForSEO Password", "type": "secret", "required": false, "help": "Password for DataForSEO API"},
+    {"key": "notify_chat", "label": "Notification Chat JID", "type": "text", "required": false, "help": "WhatsApp JID for auto-send reports"}
+  ],
+  "pip_dependencies": [
+    "google-analytics-data",
+    "google-auth",
+    "google-auth-httplib2"
+  ],
+  "free": false,
+  "price": "$49",
+  "price_type": "monthly",
+  "bundled": false,
+  "marketplace": {
+    "icon": "monitoring",
+    "tagline": "SEO intelligence delivered via WhatsApp",
+    "category": "marketing",
+    "long_description": "Agentic SEO monitoring that replaces expensive agencies. Connects to Google Analytics 4 or Umami, tracks keyword rankings via DataForSEO, detects content decay, and generates data-driven blog drafts. Weekly intelligence reports delivered straight to WhatsApp — no dashboards needed."
+  }
+}

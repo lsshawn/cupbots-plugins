@@ -539,72 +539,6 @@
         [
           [
             "key",
-            "mailwatch_imap_host"
-          ],
-          [
-            "label",
-            "IMAP Host"
-          ],
-          [
-            "type",
-            "text"
-          ],
-          [
-            "required",
-            true
-          ],
-          [
-            "help",
-            "e.g. imap.gmail.com"
-          ]
-        ],
-        [
-          [
-            "key",
-            "mailwatch_email"
-          ],
-          [
-            "label",
-            "Email Address"
-          ],
-          [
-            "type",
-            "text"
-          ],
-          [
-            "required",
-            true
-          ],
-          [
-            "help",
-            "The mailbox email address to watch"
-          ]
-        ],
-        [
-          [
-            "key",
-            "mailwatch_app_password"
-          ],
-          [
-            "label",
-            "Email App Password"
-          ],
-          [
-            "type",
-            "secret"
-          ],
-          [
-            "required",
-            true
-          ],
-          [
-            "help",
-            "Gmail: myaccount.google.com/apppasswords"
-          ]
-        ],
-        [
-          [
-            "key",
             "mailwatch_notify_chat"
           ],
           [
@@ -621,7 +555,73 @@
           ],
           [
             "help",
-            "WhatsApp JID to send notifications to"
+            "Default WhatsApp JID for notifications (per-mailbox notify_chat overrides this)"
+          ]
+        ],
+        [
+          [
+            "key",
+            "mailwatch_email"
+          ],
+          [
+            "label",
+            "Email Address (legacy)"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Legacy single-mailbox fallback. Prefer mailboxes list in config.yaml"
+          ]
+        ],
+        [
+          [
+            "key",
+            "mailwatch_app_password"
+          ],
+          [
+            "label",
+            "Email App Password (legacy)"
+          ],
+          [
+            "type",
+            "secret"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Legacy single-mailbox fallback. Prefer mailboxes list in config.yaml"
+          ]
+        ],
+        [
+          [
+            "key",
+            "mailwatch_imap_host"
+          ],
+          [
+            "label",
+            "IMAP Host (legacy)"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Legacy single-mailbox fallback. Default: imap.gmail.com"
           ]
         ],
         [
@@ -649,33 +649,11 @@
         [
           [
             "key",
-            "agentmail_inbox_id"
-          ],
-          [
-            "label",
-            "AgentMail Inbox ID"
-          ],
-          [
-            "type",
-            "text"
-          ],
-          [
-            "required",
-            false
-          ],
-          [
-            "help",
-            "AgentMail inbox ID for outbound emails"
-          ]
-        ],
-        [
-          [
-            "key",
             "agentmail_address"
           ],
           [
             "label",
-            "AgentMail From Address"
+            "AgentMail Inbox Address"
           ],
           [
             "type",
@@ -687,7 +665,7 @@
           ],
           [
             "help",
-            "Outbound from address, e.g. pa@ai.cupbots.com"
+            "AgentMail inbox address used as sender and inbox_id, e.g. pa@ai.cupbots.com"
           ]
         ],
         [
@@ -983,6 +961,72 @@
       },
       "files": [
         "plugins/search.py"
+      ]
+    },
+    "seo": {
+      "name": "seo",
+      "description": "SEO monitoring, keyword tracking, content decay detection, and blog draft generation. Supports GA4 and Umami analytics backends. Delivers weekly intelligence reports via WhatsApp.",
+      "version": "1.0.0",
+      "author": "CupBots",
+      "commands": [
+        "/seo"
+      ],
+      "intent": "SEO analytics, keyword tracking, content decay, blog drafts, Google Analytics, Umami, traffic reports, SERP rankings",
+      "not_intent": "Social media posting, advertising, PPC campaigns",
+      "config": [
+        {
+          "key": "google_client_id",
+          "label": "Google OAuth Client ID",
+          "type": "text",
+          "required": false,
+          "help": "For GA4 backend. Create at console.cloud.google.com"
+        },
+        {
+          "key": "google_client_secret",
+          "label": "Google OAuth Client Secret",
+          "type": "secret",
+          "required": false,
+          "help": "For GA4 backend"
+        },
+        {
+          "key": "dataforseo_login",
+          "label": "DataForSEO Login",
+          "type": "text",
+          "required": false,
+          "help": "Email for DataForSEO API (keyword tracking)"
+        },
+        {
+          "key": "dataforseo_password",
+          "label": "DataForSEO Password",
+          "type": "secret",
+          "required": false,
+          "help": "Password for DataForSEO API"
+        },
+        {
+          "key": "notify_chat",
+          "label": "Notification Chat JID",
+          "type": "text",
+          "required": false,
+          "help": "WhatsApp JID for auto-send reports"
+        }
+      ],
+      "pip_dependencies": [
+        "google-analytics-data",
+        "google-auth",
+        "google-auth-httplib2"
+      ],
+      "free": false,
+      "price": "$49",
+      "price_type": "monthly",
+      "bundled": false,
+      "marketplace": {
+        "icon": "monitoring",
+        "tagline": "SEO intelligence delivered via WhatsApp",
+        "category": "marketing",
+        "long_description": "Agentic SEO monitoring that replaces expensive agencies. Connects to Google Analytics 4 or Umami, tracks keyword rankings via DataForSEO, detects content decay, and generates data-driven blog drafts. Weekly intelligence reports delivered straight to WhatsApp \u2014 no dashboards needed."
+      },
+      "files": [
+        "plugins/seo.py"
       ]
     },
     "stripe": {
