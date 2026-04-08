@@ -9,13 +9,12 @@
   "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and send replies via AgentMail",
   "pip_dependencies": ["agentmail", "svix"],
   "config": [
-    [["key", "mailwatch_imap_host"], ["label", "IMAP Host"], ["type", "text"], ["required", true], ["help", "e.g. imap.gmail.com"]],
-    [["key", "mailwatch_email"], ["label", "Email Address"], ["type", "text"], ["required", true], ["help", "The mailbox email address to watch"]],
-    [["key", "mailwatch_app_password"], ["label", "Email App Password"], ["type", "secret"], ["required", true], ["help", "Gmail: myaccount.google.com/apppasswords"]],
-    [["key", "mailwatch_notify_chat"], ["label", "WhatsApp Notification Chat"], ["type", "text"], ["required", true], ["help", "WhatsApp JID to send notifications to"]],
+    [["key", "mailwatch_notify_chat"], ["label", "WhatsApp Notification Chat"], ["type", "text"], ["required", true], ["help", "Default WhatsApp JID for notifications (per-mailbox notify_chat overrides this)"]],
+    [["key", "mailwatch_email"], ["label", "Email Address (legacy)"], ["type", "text"], ["required", false], ["help", "Legacy single-mailbox fallback. Prefer mailboxes list in config.yaml"]],
+    [["key", "mailwatch_app_password"], ["label", "Email App Password (legacy)"], ["type", "secret"], ["required", false], ["help", "Legacy single-mailbox fallback. Prefer mailboxes list in config.yaml"]],
+    [["key", "mailwatch_imap_host"], ["label", "IMAP Host (legacy)"], ["type", "text"], ["required", false], ["help", "Legacy single-mailbox fallback. Default: imap.gmail.com"]],
     [["key", "agentmail_api_key"], ["label", "AgentMail API Key"], ["type", "secret"], ["required", false], ["help", "API key from agentmail.to — enables outbound email sending"]],
-    [["key", "agentmail_inbox_id"], ["label", "AgentMail Inbox ID"], ["type", "text"], ["required", false], ["help", "AgentMail inbox ID for outbound emails"]],
-    [["key", "agentmail_address"], ["label", "AgentMail From Address"], ["type", "text"], ["required", false], ["help", "Outbound from address, e.g. pa@ai.cupbots.com"]],
+    [["key", "agentmail_address"], ["label", "AgentMail Inbox Address"], ["type", "text"], ["required", false], ["help", "AgentMail inbox address used as sender and inbox_id, e.g. pa@ai.cupbots.com"]],
     [["key", "agentmail_display_name"], ["label", "AgentMail Display Name"], ["type", "text"], ["required", false], ["help", "Sender display name, e.g. ClientName Assistant"]],
     [["key", "agentmail_reply_to"], ["label", "AgentMail Reply-To (fallback)"], ["type", "text"], ["required", false], ["help", "Fallback reply-to for new emails (replies auto-use the inbound address)"]],
     [["key", "agentmail_webhook_secret"], ["label", "AgentMail Webhook Secret"], ["type", "secret"], ["required", false], ["help", "Svix signing secret (whsec_...) for verifying inbound webhooks via hub relay"]]

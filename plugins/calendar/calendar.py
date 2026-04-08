@@ -478,14 +478,22 @@ from cupbots.helpers.llm import _extract_json, ask_llm
 
 
 async def _parse_event_with_llm(raw_input: str) -> dict | None:
-    """Use Claude CLI (haiku) to parse natural language event input.
+    """Use LLM to parse natural language event input.
 
     Returns dict: title, start, end, location, rrule.
     """
     now = datetime.now(TZ)
 
+    # Extract URLs before sending to LLM to avoid JSON escaping issues
+    import re as _re
+    _url_pattern = _re.compile(r'https?://\S+')
+    extracted_urls = _url_pattern.findall(raw_input)
+    # Remove URLs from the input so LLM doesn't struggle with special chars in JSON
+    clean_input = _url_pattern.sub('', raw_input).strip()
+    clean_input = _re.sub(r'\s{2,}', ' ', clean_input)
+
     prompt = (
-        f"Parse this event: {raw_input}\n\n"
+        f"Parse this event: {clean_input}\n\n"
         f"Current date/time: {now.strftime('%Y-%m-%d %H:%M')} ({now.strftime('%A')}). "
         f"Timezone: Asia/Kuala_Lumpur (UTC+8).\n\n"
         f"Reply with ONLY a JSON object:\n"
@@ -514,6 +522,7 @@ async def _parse_event_with_llm(raw_input: str) -> dict | None:
     text = await ask_llm(prompt, json_mode=False, timeout=30)
     data = _extract_json(text)
     if not data or not isinstance(data, dict):
+        log.warning("Event parse failed. LLM returned: %s", (text or "")[:300])
         return None
 
     try:
@@ -528,11 +537,18 @@ async def _parse_event_with_llm(raw_input: str) -> dict | None:
         )
         dtend = dtstart + duration
 
+        location = data.get("location") or ""
+        # Re-attach extracted URL if LLM didn't capture it
+        if extracted_urls and not location:
+            location = extracted_urls[0]
+        elif extracted_urls and location and not location.startswith("http"):
+            location = extracted_urls[0]
+
         return {
             "title": data["title"],
             "start": dtstart,
             "end": dtend,
-            "location": data.get("location") or "",
+            "location": location,
             "rrule": data.get("rrule") or "",
         }
     except (KeyError, ValueError):

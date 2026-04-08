@@ -10,8 +10,8 @@ Commands:
   /mailwatch start            — Test connection and begin polling
   /mailwatch stop             — Stop polling
   /mailwatch test <rule_id>   — Test a rule against recent emails
-  /mailwatch account add <email> <app_password> [host]  — Add a Gmail account
-  /mailwatch account remove <email>  — Remove an account
+  /mailwatch account add <email> <app_password> [host]  — Add an email account (saves to config.yaml)
+  /mailwatch account remove <email>  — Remove an account (from config.yaml)
   /mailwatch account list     — List all accounts
   /mailwatch send <to> <subject> -- <body>  — Send email via AgentMail
   /mailwatch sent [N]         — Show N most recent sent emails (default 10)
@@ -65,39 +65,18 @@ _APPROVAL_TTL = 3600  # 1 hour, matches wa_router
 
 def create_tables(conn):
     conn.executescript("""
-        CREATE TABLE IF NOT EXISTS mailboxes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_id TEXT NOT NULL DEFAULT '',
-            email TEXT NOT NULL,
-            imap_host TEXT NOT NULL DEFAULT 'imap.gmail.com',
-            imap_port INTEGER NOT NULL DEFAULT 993,
-            imap_password TEXT NOT NULL DEFAULT '',
-            active INTEGER NOT NULL DEFAULT 1,
-            poll_interval INTEGER NOT NULL DEFAULT 60,
+        CREATE TABLE IF NOT EXISTS mailbox_state (
+            address TEXT PRIMARY KEY,
             last_poll TEXT NOT NULL DEFAULT '',
             last_error TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            active INTEGER NOT NULL DEFAULT 1
         );
 
-        CREATE TABLE IF NOT EXISTS rules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            company_id TEXT NOT NULL DEFAULT '',
-            mailbox_id INTEGER NOT NULL DEFAULT 1,
-            name TEXT NOT NULL DEFAULT '',
-            rule_type TEXT NOT NULL CHECK (rule_type IN ('keyword', 'regex', 'attachment', 'ai')),
-            match_field TEXT NOT NULL DEFAULT 'any',
-            match_pattern TEXT NOT NULL DEFAULT '',
-            action TEXT NOT NULL CHECK (action IN ('notify', 'calendar', 'crm_update', 'draft_reply', 'custom')),
-            action_config TEXT NOT NULL DEFAULT '{}',
-            active INTEGER NOT NULL DEFAULT 1,
-            priority INTEGER NOT NULL DEFAULT 0,
+        CREATE TABLE IF NOT EXISTS rule_stats (
+            rule_key TEXT PRIMARY KEY,
             hits INTEGER NOT NULL DEFAULT 0,
-            last_hit TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            last_hit TEXT NOT NULL DEFAULT ''
         );
-        CREATE INDEX IF NOT EXISTS idx_rules_company ON rules (company_id, active);
 
         CREATE TABLE IF NOT EXISTS processed_emails (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,63 +112,170 @@ def _db():
     return get_plugin_db(PLUGIN_NAME)
 
 
-_migrated = False
-
-
-def _migrate_db():
-    """Add imap_password column if missing (for existing installs)."""
-    global _migrated
-    if _migrated:
-        return
-    try:
-        conn = _db()
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(mailboxes)").fetchall()]
-        if "imap_password" not in cols:
-            conn.execute("ALTER TABLE mailboxes ADD COLUMN imap_password TEXT NOT NULL DEFAULT ''")
-            conn.commit()
-            log.info("Migrated mailboxes table: added imap_password column")
-    except Exception as e:
-        log.warning("Migration check failed: %s", e)
-    _migrated = True
-
-
 # ---------------------------------------------------------------------------
-# Config helpers
+# Config helpers — mailboxes live in config.yaml, not DB
 # ---------------------------------------------------------------------------
 
-def _get_default_credentials():
-    """Get shared credentials from plugin config (backward compat)."""
-    email_addr = resolve_plugin_setting(PLUGIN_NAME, "mailwatch_email") or ""
-    password = resolve_plugin_setting(PLUGIN_NAME, "mailwatch_app_password") or ""
-    host = resolve_plugin_setting(PLUGIN_NAME, "mailwatch_imap_host") or "imap.gmail.com"
-    return email_addr, password, host, 993
+def _get_plugin_settings() -> dict:
+    """Get full mailwatch plugin_settings dict from config.yaml."""
+    from cupbots.config import get_config
+    settings = get_config().get("plugin_settings", {}) or {}
+    return settings.get("mailwatch", {}) or {}
 
 
-def _get_mailbox_credentials(mb: dict) -> tuple[str, str, str, int]:
-    """Get credentials for a specific mailbox. Falls back to shared config if no per-mailbox password."""
-    email_addr = mb.get("email", "")
-    password = mb.get("imap_password", "")
-    host = mb.get("imap_host", "imap.gmail.com")
-    port = mb.get("imap_port", 993)
+def _get_mailboxes(company_id: str = "") -> list[dict]:
+    """Get all mailboxes from config.yaml. Falls back to legacy flat keys."""
+    settings = _get_plugin_settings()
+    mailboxes_cfg = settings.get("mailboxes", []) or []
 
-    if not password:
-        # Fallback to shared plugin config
-        _, default_pw, default_host, default_port = _get_default_credentials()
-        password = default_pw
-        if not host or host == "imap.gmail.com":
-            host = default_host or "imap.gmail.com"
-        if not port:
-            port = default_port
+    if mailboxes_cfg:
+        result = []
+        for i, mb in enumerate(mailboxes_cfg):
+            address = mb.get("address", "")
+            if not address:
+                continue
+            state = _get_mailbox_state(address)
+            result.append({
+                "id": i + 1,
+                "email": address,
+                "app_password": mb.get("app_password", ""),
+                "imap_host": mb.get("imap_host", "imap.gmail.com"),
+                "imap_port": mb.get("imap_port", 993),
+                "notify_chat": mb.get("notify_chat", ""),
+                "poll_interval": mb.get("poll_interval", 300),
+                "active": state.get("active", 1),
+                "last_poll": state.get("last_poll", ""),
+                "last_error": state.get("last_error", ""),
+            })
+        return result
 
-    return email_addr, password, host, port
+    # Legacy fallback: single mailbox from flat keys
+    email_addr = settings.get("mailwatch_email", "")
+    password = settings.get("mailwatch_app_password", "")
+    if email_addr and password:
+        state = _get_mailbox_state(email_addr)
+        return [{
+            "id": 1,
+            "email": email_addr,
+            "app_password": password,
+            "imap_host": settings.get("mailwatch_imap_host", "imap.gmail.com"),
+            "imap_port": 993,
+            "notify_chat": "",
+            "poll_interval": 300,
+            "active": state.get("active", 1),
+            "last_poll": state.get("last_poll", ""),
+            "last_error": state.get("last_error", ""),
+        }]
+
+    return []
 
 
-def _get_notify_chat():
+def _get_mailbox(company_id: str = "", mailbox_id: int | None = None) -> dict | None:
+    """Get a specific mailbox by 1-based index, or the first one."""
+    mailboxes = _get_mailboxes(company_id)
+    if not mailboxes:
+        return None
+    if mailbox_id:
+        for mb in mailboxes:
+            if mb["id"] == mailbox_id:
+                return mb
+        return None
+    return mailboxes[0]
+
+
+def _get_mailbox_state(address: str) -> dict:
+    """Get runtime state (last_poll, last_error, active) from DB."""
+    row = _db().execute(
+        "SELECT * FROM mailbox_state WHERE address = ?", (address,)
+    ).fetchone()
+    return dict(row) if row else {"last_poll": "", "last_error": "", "active": 1}
+
+
+def _update_mailbox_state(address: str, **kwargs):
+    """Update runtime state for a mailbox in DB."""
+    _db().execute(
+        "INSERT INTO mailbox_state (address) VALUES (?) ON CONFLICT(address) DO NOTHING",
+        (address,),
+    )
+    for key, val in kwargs.items():
+        if key in ("last_poll", "last_error", "active"):
+            _db().execute(
+                f"UPDATE mailbox_state SET {key} = ? WHERE address = ?",
+                (val, address),
+            )
+    _db().commit()
+
+
+def _get_notify_chat(mb: dict | None = None) -> str:
+    """Get notify chat — per-mailbox override or global fallback."""
+    if mb and mb.get("notify_chat"):
+        return mb["notify_chat"]
     return resolve_plugin_setting(PLUGIN_NAME, "mailwatch_notify_chat") or ""
 
 
 # ---------------------------------------------------------------------------
 # AgentMail outbound
+def _get_rules() -> list[dict]:
+    """Get rules from config.yaml. Returns list of rule dicts with synthetic id."""
+    settings = _get_plugin_settings()
+    rules_cfg = settings.get("rules", []) or []
+
+    result = []
+    for i, r in enumerate(rules_cfg):
+        rule_type = r.get("type", "keyword")
+        if rule_type not in VALID_RULE_TYPES:
+            continue
+        action = r.get("action", "notify")
+        if action not in VALID_ACTIONS:
+            continue
+        field = r.get("field", "any")
+        pattern = r.get("pattern", "")
+        if not pattern:
+            continue
+
+        rule_key = f"{rule_type}_{field}_{pattern}_{action}"
+        stats = _get_rule_stats(rule_key)
+        result.append({
+            "id": i + 1,
+            "rule_key": rule_key,
+            "rule_type": rule_type,
+            "match_field": field,
+            "match_pattern": pattern,
+            "action": action,
+            "action_config": json.dumps(r.get("action_config", {})),
+            "name": r.get("name", f"{rule_type}_{action}"),
+            "active": 1 if r.get("active", True) else 0,
+            "priority": r.get("priority", 0),
+            "hits": stats.get("hits", 0),
+            "last_hit": stats.get("last_hit", ""),
+        })
+    return result
+
+
+def _get_rule_stats(rule_key: str) -> dict:
+    """Get hit stats for a rule from DB."""
+    row = _db().execute(
+        "SELECT * FROM rule_stats WHERE rule_key = ?", (rule_key,)
+    ).fetchone()
+    return dict(row) if row else {"hits": 0, "last_hit": ""}
+
+
+def _update_rule_stats(rule_key: str):
+    """Increment hit count for a rule."""
+    _db().execute(
+        "INSERT INTO rule_stats (rule_key, hits, last_hit) VALUES (?, 1, datetime('now')) "
+        "ON CONFLICT(rule_key) DO UPDATE SET hits = hits + 1, last_hit = datetime('now')",
+        (rule_key,),
+    )
+    _db().commit()
+
+
+def _ai_fallback_enabled() -> bool:
+    """Check if AI fallback for unmatched emails is enabled. Default: true."""
+    settings = _get_plugin_settings()
+    return bool(settings.get("ai_fallback", True))
+
+
 # ---------------------------------------------------------------------------
 
 _agentmail_client = None
@@ -248,9 +334,10 @@ async def _agentmail_send(
         log.warning("AgentMail not configured — cannot send email")
         return None
 
-    inbox_id = resolve_plugin_setting(PLUGIN_NAME, "agentmail_inbox_id")
+    inbox_id = (resolve_plugin_setting(PLUGIN_NAME, "agentmail_address")
+                or resolve_plugin_setting(PLUGIN_NAME, "agentmail_inbox_id") or "")
     if not inbox_id:
-        log.warning("agentmail_inbox_id not configured")
+        log.warning("agentmail_address not configured")
         return None
 
     # Resolve reply-to: use provided (from inbound email), else config fallback
@@ -356,48 +443,6 @@ async def handle_approval(data: dict, wa_api_url: str) -> bool:
             await ctx.reply_text(f"Email draft discarded for {pending['to']}")
 
     return True
-
-
-def _get_mailboxes(company_id: str) -> list[dict]:
-    """Get all mailboxes for a company."""
-    _migrate_db()
-    rows = _db().execute(
-        "SELECT * FROM mailboxes WHERE company_id = ? ORDER BY id",
-        (company_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
-def _get_mailbox(company_id: str, mailbox_id: int | None = None) -> dict | None:
-    _migrate_db()
-    if mailbox_id:
-        row = _db().execute(
-            "SELECT * FROM mailboxes WHERE company_id = ? AND id = ?",
-            (company_id, mailbox_id),
-        ).fetchone()
-    else:
-        row = _db().execute(
-            "SELECT * FROM mailboxes WHERE company_id = ? ORDER BY id LIMIT 1",
-            (company_id,),
-        ).fetchone()
-    return dict(row) if row else None
-
-
-def _get_or_create_mailbox(company_id: str) -> dict:
-    mb = _get_mailbox(company_id)
-    if mb:
-        return mb
-    email_addr, password, host, port = _get_default_credentials()
-    _migrate_db()
-    _db().execute(
-        "INSERT INTO mailboxes (company_id, email, imap_host, imap_port, imap_password) VALUES (?, ?, ?, ?, ?)",
-        (company_id, email_addr, host, port, password),
-    )
-    _db().commit()
-    return dict(_db().execute(
-        "SELECT * FROM mailboxes WHERE company_id = ? ORDER BY id DESC LIMIT 1",
-        (company_id,),
-    ).fetchone())
 
 
 # ---------------------------------------------------------------------------
@@ -731,25 +776,155 @@ _ACTIONS = {
 }
 
 
+async def _ai_fallback(email_data: dict, mb: dict | None = None):
+    """AI triage for emails that didn't match any rule. Uses agent loop to take action."""
+    try:
+        from cupbots.helpers.llm import run_agent_loop, build_tools
+        from cupbots.helpers.db import load_plugin_metadata
+        from cupbots.config import get_config
+    except ImportError:
+        log.warning("AI fallback: llm helper not available")
+        return
+
+    chat = _get_notify_chat(mb)
+    if not chat:
+        log.warning("AI fallback: no notify chat configured")
+        return
+
+    config = get_config()
+    ai_cfg = config.get("ai", {})
+    # Prefer Anthropic for agentic triage (better tool use), fall back to config default
+    if ai_cfg.get("anthropic_api_key"):
+        provider = "anthropic"
+    else:
+        provider = ai_cfg.get("api_provider", "anthropic")
+
+    # Build tools so the agent can execute commands like /cal, /event, etc.
+    from pathlib import Path
+    import cupbots.helpers.wa_router as _wr
+    # Framework plugins dir (cupbots/plugins/)
+    plugin_dirs = [str(Path(_wr.__file__).resolve().parent.parent / "plugins")]
+    plugin_dirs += config.get("external_plugin_dirs", [])
+    metadata = load_plugin_metadata(plugin_dirs)
+    tools = build_tools(metadata, provider=provider)
+
+    # Extract .ics content so the LLM can see actual event date/time
+    ics_content = ""
+    attachment_names = []
+    for att in email_data.get("attachments", []):
+        attachment_names.append(att["filename"])
+        if att["filename"].lower().endswith(".ics") or att.get("content_type") == "text/calendar":
+            att_data = att.get("data", b"")
+            if isinstance(att_data, bytes):
+                ics_content += att_data.decode("utf-8", errors="replace")
+            else:
+                ics_content += str(att_data)
+
+    prompt = (
+        f"An email arrived that needs triage. Analyze it and take appropriate action.\n\n"
+        f"From: {email_data['sender']}\n"
+        f"Subject: {email_data['subject']}\n"
+        f"Body:\n{email_data['body_text'][:3000]}\n\n"
+        f"Attachments: {', '.join(attachment_names) or 'none'}\n"
+    )
+    if ics_content:
+        prompt += (
+            f"\n--- .ics calendar data (use DTSTART/DTEND for the actual event time) ---\n"
+            f"{ics_content[:2000]}\n"
+            f"--- end .ics ---\n"
+        )
+    prompt += (
+        f"\nInstructions:\n"
+        f"- If this is a meeting invitation or calendar event, you MUST call the run_command tool "
+        f"with '/event <title> <date> <time> <meeting_link>' to actually create the calendar event. "
+        f"Extract the date and time from the .ics DTSTART field, NOT from the email timestamp. "
+        f"Always include the meeting link (Zoom, Google Meet, Teams, etc.) from the email body or .ics LOCATION/URL field. "
+        f"Example: /event Team Standup 2026-04-08 10:00 https://zoom.us/j/123\n"
+        f"Do NOT just say you created it — you must call the tool.\n"
+        f"- If this is informational only, just summarize it\n"
+        f"- Always start with a brief summary of the email\n"
+        f"- After taking action, report what you actually did (include the tool output)"
+    )
+
+    system = (
+        "You are an email triage assistant. You have tools to execute bot commands. "
+        "CRITICAL: To create calendar events, you MUST call the run_command tool. "
+        "Saying 'I created an event' without calling the tool is a lie. "
+        "Always use tools for actions, then report the result."
+    )
+
+    log.info("AI fallback: provider=%s, tools available: %d definitions", provider, len(tools))
+    if not tools:
+        log.warning("AI fallback: no tools built — agent cannot execute commands")
+
+    ctx = WhatsAppReplyContext(chat, WA_API_URL)
+
+    try:
+        result = await run_agent_loop(
+            prompt,
+            system_prompt=system,
+            tools=tools,
+            max_turns=5,
+            chat_id=chat,
+            company_id="",
+            provider=provider,
+        )
+        response_text = result.get("text", "").strip()
+        if response_text:
+            await ctx.reply_text(
+                f"📧 *Mailwatch AI Triage*\n"
+                f"From: {email_data['sender']}\n"
+                f"Subject: {email_data['subject']}\n\n"
+                f"{response_text}"
+            )
+        turns = result.get("turns", 0)
+        log.info("AI fallback: triaged '%s' in %d turns (cost=$%.4f)",
+                 email_data["subject"][:60], turns,
+                 result.get("estimated_cost_usd", 0))
+        if turns <= 1:
+            log.warning("AI fallback: only %d turn — LLM likely did not call any tools", turns)
+    except Exception as e:
+        log.error("AI fallback agent loop failed: %s", e)
+        # Fall back to simple summary
+        try:
+            from cupbots.helpers.llm import ask_llm
+            summary = await ask_llm(
+                f"Briefly summarize this email (2-3 lines).\n\n"
+                f"From: {email_data['sender']}\nSubject: {email_data['subject']}\n"
+                f"Body:\n{email_data['body_text'][:3000]}",
+                system="You are an email triage assistant. Be concise.",
+                max_tokens=256,
+            )
+            if summary:
+                await ctx.reply_text(
+                    f"📧 *Mailwatch AI Triage*\n"
+                    f"From: {email_data['sender']}\n"
+                    f"Subject: {email_data['subject']}\n\n"
+                    f"{summary}"
+                )
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # IMAP connection
 # ---------------------------------------------------------------------------
 
-def _connect_imap(mb: dict | None = None) -> imaplib.IMAP4_SSL:
-    """Connect to IMAP. Uses per-mailbox credentials if mb is provided, else shared config."""
-    if mb:
-        email_addr, password, host, port = _get_mailbox_credentials(mb)
-    else:
-        email_addr, password, host, port = _get_default_credentials()
+def _connect_imap(mb: dict) -> imaplib.IMAP4_SSL:
+    """Connect to IMAP using mailbox credentials."""
+    email_addr = mb.get("email", "")
+    password = mb.get("app_password", "")
+    host = mb.get("imap_host", "imap.gmail.com")
+    port = mb.get("imap_port", 993)
     if not email_addr or not password:
-        raise ValueError("Email credentials not configured. Use /mailwatch account add or /config mailwatch")
+        raise ValueError("Email credentials not configured. Use /mailwatch account add or edit config.yaml")
     conn = imaplib.IMAP4_SSL(host, port)
     conn.login(email_addr, password)
     return conn
 
 
-def _test_connection(mb: dict | None = None) -> str:
-    """Test IMAP connection for a specific mailbox or default. Returns status message."""
+def _test_connection(mb: dict) -> str:
+    """Test IMAP connection for a mailbox. Returns status message."""
     try:
         conn = _connect_imap(mb)
         conn.select("INBOX", readonly=True)
@@ -757,12 +932,7 @@ def _test_connection(mb: dict | None = None) -> str:
         total = len(data[0].split()) if data[0] else 0
         conn.close()
         conn.logout()
-        if mb:
-            email_addr = mb.get("email", "")
-            host = mb.get("imap_host", "")
-        else:
-            email_addr, _, host, _ = _get_default_credentials()
-        return f"Connected to {email_addr} ({host}). {total} total emails in inbox."
+        return f"Connected to {mb['email']} ({mb['imap_host']}). {total} total emails in inbox."
     except Exception as e:
         return f"Connection failed: {e}"
 
@@ -791,27 +961,20 @@ async def _handle_poll_job(payload: dict, bot=None):
         if not uids:
             conn.close()
             conn.logout()
-            _db().execute(
-                "UPDATE mailboxes SET last_poll = datetime('now'), last_error = '' WHERE id = ?",
-                (mb["id"],),
-            )
-            _db().commit()
+            _update_mailbox_state(mb["email"], last_poll=datetime.now().isoformat(), last_error="")
             _reschedule(payload, mb["poll_interval"])
             return
 
-        # Load active rules
-        rules = _db().execute(
-            "SELECT * FROM rules WHERE company_id = ? AND active = 1 ORDER BY priority DESC",
-            (company_id,),
-        ).fetchall()
+        # Load active rules from config.yaml
+        rules = [r for r in _get_rules() if r["active"]]
 
         for uid in uids:
             uid_str = uid.decode()
 
             # Dedup check
             existing = _db().execute(
-                "SELECT 1 FROM processed_emails WHERE company_id = ? AND mailbox_id = ? AND uid = ?",
-                (company_id, mailbox_id, uid_str),
+                "SELECT 1 FROM processed_emails WHERE mailbox_id = ? AND uid = ?",
+                (mailbox_id, uid_str),
             ).fetchone()
             if existing:
                 continue
@@ -827,7 +990,7 @@ async def _handle_poll_job(payload: dict, bot=None):
             matched_rule = None
             for rule in rules:
                 try:
-                    if await _match_rule(dict(rule), email_data):
+                    if await _match_rule(rule, email_data):
                         matched_rule = dict(rule)
                         break
                 except Exception as e:
@@ -880,33 +1043,32 @@ async def _handle_poll_job(payload: dict, bot=None):
                 )
 
                 # Update rule stats
-                _db().execute(
-                    "UPDATE rules SET hits = hits + 1, last_hit = datetime('now') WHERE id = ?",
-                    (matched_rule["id"],),
-                )
-                _db().commit()
+                _update_rule_stats(matched_rule["rule_key"])
 
                 # Mark as seen in IMAP
                 conn.store(uid, "+FLAGS", "\\Seen")
-            # No match = email stays UNSEEN, will be rechecked on next poll.
-            # This way, adding a new rule catches previously unmatched emails.
+            else:
+                # No rule matched — try AI fallback
+                if _ai_fallback_enabled():
+                    await _ai_fallback(email_data, mb)
+                    _db().execute(
+                        "INSERT OR IGNORE INTO processed_emails "
+                        "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
+                        "VALUES ('', ?, ?, ?, ?, ?, NULL, 'ai_fallback')",
+                        (mailbox_id, uid_str, email_data["message_id"],
+                         email_data["subject"][:200], email_data["sender"][:200]),
+                    )
+                    _db().commit()
+                    conn.store(uid, "+FLAGS", "\\Seen")
+                # else: email stays UNSEEN, will be rechecked on next poll
 
         conn.close()
         conn.logout()
-
-        _db().execute(
-            "UPDATE mailboxes SET last_poll = datetime('now'), last_error = '' WHERE id = ?",
-            (mb["id"],),
-        )
-        _db().commit()
+        _update_mailbox_state(mb["email"], last_poll=datetime.now().isoformat(), last_error="")
 
     except Exception as e:
         log.error("Poll failed for %s: %s", company_id, e)
-        _db().execute(
-            "UPDATE mailboxes SET last_error = ? WHERE id = ?",
-            (str(e)[:500], mb["id"]),
-        )
-        _db().commit()
+        _update_mailbox_state(mb["email"], last_error=str(e)[:500])
         raise  # Let jobs.py handle retry/backoff
 
     _reschedule(payload, mb["poll_interval"])
@@ -923,25 +1085,26 @@ def _reschedule(payload: dict, interval: int):
 async def _handle_watchdog_job(payload: dict, bot=None):
     """Re-enqueue polls for active mailboxes whose last_poll is stale."""
     cutoff = (datetime.now() - timedelta(minutes=3)).isoformat()
+    company_id = payload.get("company_id", "")
 
-    stale = _db().execute(
-        "SELECT * FROM mailboxes WHERE active = 1 AND (last_poll < ? OR last_poll = '')",
-        (cutoff,),
-    ).fetchall()
-
-    for mb in stale:
+    mailboxes = _get_mailboxes(company_id)
+    for mb in mailboxes:
+        if not mb["active"]:
+            continue
+        if mb["last_poll"] and mb["last_poll"] > cutoff:
+            continue  # Not stale
         log.info("Watchdog: re-enqueuing poll for %s (last_poll: %s)",
-                 mb["company_id"], mb["last_poll"])
+                 mb["email"], mb["last_poll"])
         enqueue(
             "mailwatch_poll",
-            {"company_id": mb["company_id"], "mailbox_id": mb["id"]},
+            {"company_id": company_id, "mailbox_id": mb["id"]},
             run_at=datetime.now() + timedelta(seconds=10),
             max_attempts=3,
         )
 
     # Reschedule watchdog
     enqueue(
-        "mailwatch_watchdog", {},
+        "mailwatch_watchdog", {"company_id": company_id},
         run_at=datetime.now() + timedelta(minutes=5),
         max_attempts=1,
     )
@@ -962,105 +1125,134 @@ async def process_agentmail_webhook(body: str, headers: dict) -> None:
     if webhook_secret:
         try:
             from svix.webhooks import Webhook, WebhookVerificationError
-            wh = Webhook(webhook_secret)
-            wh.verify(body, headers)
-        except WebhookVerificationError:
-            log.warning("AgentMail webhook signature verification failed")
-            raise ValueError("Invalid webhook signature")
+        except ImportError:
+            log.warning("svix package not installed — pip install svix. Skipping signature verification.")
+            WebhookVerificationError = None
+
+        if WebhookVerificationError is not None:
+            try:
+                wh = Webhook(webhook_secret)
+                wh.verify(body, headers)
+            except WebhookVerificationError:
+                log.warning("AgentMail webhook signature verification failed")
+                raise ValueError("Invalid webhook signature")
     else:
-        log.warning("AGENTMAIL_WEBHOOK_SECRET not set — skipping signature verification")
+        log.warning("agentmail_webhook_secret not set — skipping signature verification")
 
     payload = json.loads(body)
     event_type = payload.get("event_type", "")
+    log.info("AgentMail webhook received: event_type=%s", event_type)
 
     if event_type != "message.received":
-        log.debug("Ignoring AgentMail event: %s", event_type)
+        log.info("AgentMail webhook: ignoring event type '%s'", event_type)
         return
 
-    data = payload.get("data", payload)
+    # AgentMail nests email data under "message", not "data"
+    data = payload.get("message") or payload.get("data") or payload
 
     # Convert AgentMail payload to email_data format (same as _parse_email)
+    # Extract attachment data — AgentMail may include content inline or as URL
+    attachments = []
+    for a in data.get("attachments", []):
+        att = {
+            "filename": a.get("filename", ""),
+            "content_type": a.get("content_type", a.get("mime_type", "")),
+            "data": b"",
+        }
+        # Try inline content (base64 or raw)
+        content = a.get("content", a.get("data", ""))
+        if content:
+            if isinstance(content, str):
+                try:
+                    import base64
+                    att["data"] = base64.b64decode(content)
+                except Exception:
+                    att["data"] = content.encode("utf-8", errors="replace")
+            elif isinstance(content, bytes):
+                att["data"] = content
+        # Try download URL if no inline content
+        if not att["data"] and a.get("url"):
+            try:
+                import httpx
+                r = httpx.get(a["url"], timeout=10)
+                if r.status_code == 200:
+                    att["data"] = r.content
+            except Exception as e:
+                log.warning("AgentMail attachment download failed: %s", e)
+        attachments.append(att)
+    # Log raw attachment keys for debugging
+    if data.get("attachments"):
+        log.info("AgentMail webhook: attachment keys=%s", [list(a.keys()) for a in data["attachments"]])
+
     email_data = {
         "subject": data.get("subject", "(no subject)"),
         "sender": data.get("from_", data.get("from", "")),
         "to": ", ".join(data.get("to", [])) if isinstance(data.get("to"), list) else data.get("to", ""),
-        "date": data.get("created_at", ""),
+        "date": data.get("timestamp", data.get("created_at", "")),
         "message_id": data.get("message_id", data.get("id", "")),
-        "body_text": data.get("text", ""),
-        "body_html": data.get("html", ""),
-        "attachments": [
-            {"filename": a.get("filename", ""), "content_type": a.get("content_type", ""), "data": b""}
-            for a in data.get("attachments", [])
-        ],
+        "body_text": data.get("text", data.get("extracted_text", "")),
+        "body_html": data.get("html", data.get("extracted_html", "")),
+        "attachments": attachments,
     }
+    log.info("AgentMail webhook: from=%s subject=%s", email_data["sender"], email_data["subject"][:80])
 
     if not email_data["body_text"] and email_data["body_html"]:
         email_data["body_text"] = re.sub(r"<[^>]+>", " ", email_data["body_html"])
         email_data["body_text"] = re.sub(r"\s+", " ", email_data["body_text"]).strip()
 
-    # Resolve company_id from inbox_id → mailbox mapping
-    inbox_id = data.get("inbox_id", "")
-    configured_inbox = resolve_plugin_setting(PLUGIN_NAME, "agentmail_inbox_id")
-
-    # Find company_id: match by configured inbox, or fall back to first active mailbox
-    company_id = ""
-    mailbox_id = 0
-    if inbox_id and inbox_id == configured_inbox:
-        # Use the first active mailbox's company_id (single-tenant typical case)
-        mb = _db().execute(
-            "SELECT id, company_id FROM mailboxes WHERE active = 1 ORDER BY id LIMIT 1"
-        ).fetchone()
-        if mb:
-            company_id = mb["company_id"]
-            mailbox_id = mb["id"]
-
-    if not company_id:
-        log.warning("AgentMail webhook: could not resolve company_id for inbox %s", inbox_id)
+    mailboxes = _get_mailboxes()
+    if not mailboxes:
+        log.warning("AgentMail webhook: no mailboxes configured")
         return
+    mailbox_id = mailboxes[0]["id"]
 
     # Dedup by message_id
     uid_str = f"agentmail:{email_data['message_id']}"
     existing = _db().execute(
-        "SELECT 1 FROM processed_emails WHERE company_id = ? AND mailbox_id = ? AND uid = ?",
-        (company_id, mailbox_id, uid_str),
+        "SELECT 1 FROM processed_emails WHERE mailbox_id = ? AND uid = ?",
+        (mailbox_id, uid_str),
     ).fetchone()
     if existing:
-        log.debug("AgentMail webhook: already processed %s", uid_str)
+        log.info("AgentMail webhook: already processed %s", uid_str)
         return
 
-    # Load active rules and match
-    rules = _db().execute(
-        "SELECT * FROM rules WHERE company_id = ? AND active = 1 ORDER BY priority DESC",
-        (company_id,),
-    ).fetchall()
+    # Load active rules from config.yaml and match
+    rules = [r for r in _get_rules() if r["active"]]
+    log.info("AgentMail webhook: %d active rules", len(rules))
 
     matched_rule = None
     for rule in rules:
         try:
-            if await _match_rule(dict(rule), email_data):
-                matched_rule = dict(rule)
+            if await _match_rule(rule, email_data):
+                matched_rule = rule
                 break
         except Exception as e:
             log.error("Rule %d match error: %s", rule["id"], e)
 
-    if not matched_rule:
-        log.debug("AgentMail webhook: no rule matched for %s", email_data["subject"][:80])
+    action_taken = ""
+    if matched_rule:
+        # Execute action
+        action_fn = _ACTIONS.get(matched_rule["action"])
+        if action_fn:
+            try:
+                await action_fn(email_data, matched_rule, "")
+            except Exception as e:
+                log.error("Action %s failed for rule %d: %s",
+                          matched_rule["action"], matched_rule["id"], e)
+        _update_rule_stats(matched_rule["rule_key"])
+        action_taken = matched_rule["action"]
+    elif _ai_fallback_enabled():
+        log.info("AgentMail webhook: no rule matched, using AI fallback for '%s'", email_data["subject"][:80])
+        await _ai_fallback(email_data)
+        action_taken = "ai_fallback"
+    else:
+        log.info("AgentMail webhook: no rule matched for '%s'", email_data["subject"][:80])
         return
-
-    # Execute action
-    action_fn = _ACTIONS.get(matched_rule["action"])
-    if action_fn:
-        try:
-            await action_fn(email_data, matched_rule, company_id)
-        except Exception as e:
-            log.error("Action %s failed for rule %d: %s",
-                      matched_rule["action"], matched_rule["id"], e)
 
     # Emit events
     try:
         from cupbots.helpers.events import emit
         await emit("email.received", {
-            "company_id": company_id,
             "subject": email_data["subject"],
             "sender": email_data["sender"],
             "body_text": email_data["body_text"][:5000],
@@ -1068,7 +1260,7 @@ async def process_agentmail_webhook(body: str, headers: dict) -> None:
                 {"filename": a["filename"], "content_type": a["content_type"]}
                 for a in email_data["attachments"]
             ],
-            "rule_action": matched_rule["action"],
+            "rule_action": action_taken,
             "source": "agentmail",
         })
     except Exception as e:
@@ -1078,17 +1270,12 @@ async def process_agentmail_webhook(body: str, headers: dict) -> None:
     _db().execute(
         "INSERT OR IGNORE INTO processed_emails "
         "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (company_id, mailbox_id, uid_str, email_data["message_id"],
-         email_data["subject"][:200], email_data["sender"][:200],
-         matched_rule["id"], matched_rule["action"]),
-    )
-    _db().execute(
-        "UPDATE rules SET hits = hits + 1, last_hit = datetime('now') WHERE id = ?",
-        (matched_rule["id"],),
+        "VALUES ('', ?, ?, ?, ?, ?, NULL, ?)",
+        (mailbox_id, uid_str, email_data["message_id"],
+         email_data["subject"][:200], email_data["sender"][:200], action_taken),
     )
     _db().commit()
-    log.info("AgentMail webhook processed: %s → %s", email_data["subject"][:60], matched_rule["action"])
+    log.info("AgentMail webhook processed: %s → %s", email_data["subject"][:60], action_taken)
 
 
 # Register job handlers
@@ -1175,7 +1362,7 @@ async def handle_command(msg, reply) -> bool:
         return False
 
     args = msg.args
-    company_id = msg.company_id or ""
+    company_id = ""  # Rules are global, not scoped per-group
 
     if not args:
         await reply.reply_text(__doc__.strip())
@@ -1190,45 +1377,47 @@ async def handle_command(msg, reply) -> bool:
     if sub == "status":
         mailboxes = _get_mailboxes(company_id)
         if not mailboxes:
-            await reply.reply_text("No mailbox configured. Use /mailwatch account add or /mailwatch start")
+            await reply.reply_text("No mailbox configured. Add one in config.yaml under plugin_settings.mailwatch.mailboxes")
             return True
-        rule_count = _db().execute(
-            "SELECT COUNT(*) as c FROM rules WHERE company_id = ? AND active = 1",
-            (company_id,),
-        ).fetchone()["c"]
+        rules = _get_rules()
+        rule_count = len([r for r in rules if r["active"]])
         processed = _db().execute(
-            "SELECT COUNT(*) as c FROM processed_emails WHERE company_id = ?",
-            (company_id,),
+            "SELECT COUNT(*) as c FROM processed_emails",
         ).fetchone()["c"]
         lines = []
         for mb in mailboxes:
             status = "active" if mb["active"] else "stopped"
             last_poll = mb["last_poll"] or "never"
             error = f" | Error: {mb['last_error']}" if mb["last_error"] else ""
-            has_pw = "yes" if mb.get("imap_password") else "shared"
             lines.append(
                 f"#{mb['id']} {mb['email']} ({mb['imap_host']})\n"
-                f"  Status: {status} | Password: {has_pw} | Last poll: {last_poll}{error}"
+                f"  Status: {status} | Last poll: {last_poll}{error}"
             )
         header = f"*Mailwatch* — {len(mailboxes)} account(s), {rule_count} rules, {processed} processed\n"
         await reply.reply_text(header + "\n".join(lines))
         return True
 
     if sub == "rules":
-        rules = _db().execute(
-            "SELECT * FROM rules WHERE company_id = ? ORDER BY priority DESC, id",
-            (company_id,),
-        ).fetchall()
+        rules = _get_rules()
         if not rules:
-            await reply.reply_text("No rules. Add one:\n/mailwatch add keyword subject \"invoice\" -> notify")
+            await reply.reply_text(
+                "No rules configured. Add rules in config.yaml:\n"
+                "plugin_settings.mailwatch.rules:\n"
+                "  - type: keyword\n"
+                "    field: subject\n"
+                "    pattern: \"invoice\"\n"
+                "    action: notify\n\n"
+                "Or: /mailwatch add keyword subject \"invoice\" -> notify"
+            )
             return True
-        lines = ["Mailwatch Rules:\n"]
+        lines = ["*Mailwatch Rules:*\n"]
+        ai_fb = "on" if _ai_fallback_enabled() else "off"
+        lines.append(f"AI fallback: {ai_fb}\n")
         for r in rules:
             status = "" if r["active"] else " [disabled]"
             hits = f" ({r['hits']} hits)" if r["hits"] else ""
-            name = f" {r['name']}" if r["name"] else ""
             lines.append(
-                f"#{r['id']}{name}{status} {r['rule_type']} "
+                f"#{r['id']}{status} {r['rule_type']} "
                 f"{r['match_field']}:{r['match_pattern'][:40]} -> {r['action']}{hits}"
             )
         await reply.reply_text("\n".join(lines))
@@ -1239,17 +1428,19 @@ async def handle_command(msg, reply) -> bool:
         if isinstance(parsed, str):
             await reply.reply_text(parsed)
             return True
-        _db().execute(
-            "INSERT INTO rules (company_id, rule_type, match_field, match_pattern, action, name) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (company_id, parsed["rule_type"], parsed["match_field"],
-             parsed["match_pattern"], parsed["action"],
-             f"{parsed['rule_type']}_{parsed['action']}"),
-        )
-        _db().commit()
-        rid = _db().execute("SELECT last_insert_rowid() as id").fetchone()["id"]
+        from cupbots.config import update_config_key
+        settings = _get_plugin_settings()
+        rules_list = list(settings.get("rules", []) or [])
+        new_rule = {
+            "type": parsed["rule_type"],
+            "field": parsed["match_field"],
+            "pattern": parsed["match_pattern"],
+            "action": parsed["action"],
+        }
+        rules_list.append(new_rule)
+        update_config_key("plugin_settings.mailwatch.rules", rules_list)
         await reply.reply_text(
-            f"Rule #{rid} added: {parsed['rule_type']} "
+            f"Rule #{len(rules_list)} added: {parsed['rule_type']} "
             f"{parsed['match_field']}:{parsed['match_pattern'][:50]} -> {parsed['action']}"
         )
         return True
@@ -1259,12 +1450,15 @@ async def handle_command(msg, reply) -> bool:
             await reply.reply_text("Usage: /mailwatch remove <id>")
             return True
         rid = int(args[1])
-        deleted = _db().execute(
-            "DELETE FROM rules WHERE id = ? AND company_id = ?",
-            (rid, company_id),
-        ).rowcount
-        _db().commit()
-        await reply.reply_text(f"Removed rule #{rid}" if deleted else f"Rule #{rid} not found.")
+        from cupbots.config import update_config_key
+        settings = _get_plugin_settings()
+        rules_list = list(settings.get("rules", []) or [])
+        if rid < 1 or rid > len(rules_list):
+            await reply.reply_text(f"Rule #{rid} not found. You have {len(rules_list)} rules.")
+            return True
+        removed = rules_list.pop(rid - 1)
+        update_config_key("plugin_settings.mailwatch.rules", rules_list)
+        await reply.reply_text(f"Removed rule #{rid}: {removed.get('type')} {removed.get('pattern', '')[:40]} -> {removed.get('action')}")
         return True
 
     if sub == "account":
@@ -1285,42 +1479,43 @@ async def handle_command(msg, reply) -> bool:
             acct_host = args[4] if len(args) > 4 else "imap.gmail.com"
 
             # Check for duplicate
-            existing = _db().execute(
-                "SELECT id FROM mailboxes WHERE company_id = ? AND email = ?",
-                (company_id, acct_email),
-            ).fetchone()
-            if existing:
-                await reply.reply_text(f"Account {acct_email} already exists (#{existing['id']}). Remove it first.")
-                return True
+            existing = _get_mailboxes(company_id)
+            for mb in existing:
+                if mb["email"] == acct_email:
+                    await reply.reply_text(f"Account {acct_email} already exists. Remove it first.")
+                    return True
 
             # Test connection before saving
             await reply.send_typing()
-            test_mb = {"email": acct_email, "imap_password": acct_password, "imap_host": acct_host, "imap_port": 993}
+            test_mb = {"email": acct_email, "app_password": acct_password, "imap_host": acct_host, "imap_port": 993}
             result = _test_connection(test_mb)
             if "failed" in result.lower():
                 await reply.reply_text(f"Connection test failed for {acct_email}:\n{result}")
                 return True
 
-            _migrate_db()
-            _db().execute(
-                "INSERT INTO mailboxes (company_id, email, imap_host, imap_port, imap_password) VALUES (?, ?, ?, ?, ?)",
-                (company_id, acct_email, acct_host, 993, acct_password),
-            )
-            _db().commit()
+            # Write to config.yaml
+            from cupbots.config import update_config_key
+            settings = _get_plugin_settings()
+            mailboxes_list = list(settings.get("mailboxes", []) or [])
+            mailboxes_list.append({
+                "address": acct_email,
+                "app_password": acct_password,
+                "imap_host": acct_host,
+            })
+            update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
             await reply.reply_text(f"Account added: {acct_email} ({acct_host})\n{result}\n\nUse /mailwatch start to begin polling all accounts.")
             return True
 
         if acct_sub == "remove" and len(args) >= 3:
             acct_email = args[2]
-            row = _db().execute(
-                "SELECT id FROM mailboxes WHERE company_id = ? AND email = ?",
-                (company_id, acct_email),
-            ).fetchone()
-            if not row:
+            settings = _get_plugin_settings()
+            mailboxes_list = list(settings.get("mailboxes", []) or [])
+            new_list = [mb for mb in mailboxes_list if mb.get("address") != acct_email]
+            if len(new_list) == len(mailboxes_list):
                 await reply.reply_text(f"Account not found: {acct_email}")
                 return True
-            _db().execute("DELETE FROM mailboxes WHERE id = ?", (row["id"],))
-            _db().commit()
+            from cupbots.config import update_config_key
+            update_config_key("plugin_settings.mailwatch.mailboxes", new_list)
             await reply.reply_text(f"Account removed: {acct_email}")
             return True
 
@@ -1332,8 +1527,7 @@ async def handle_command(msg, reply) -> bool:
             lines = ["*Email Accounts:*\n"]
             for mb in mailboxes:
                 status = "active" if mb["active"] else "stopped"
-                has_pw = "per-account" if mb.get("imap_password") else "shared config"
-                lines.append(f"#{mb['id']} {mb['email']} ({mb['imap_host']}) — {status}, creds: {has_pw}")
+                lines.append(f"#{mb['id']} {mb['email']} ({mb['imap_host']}) — {status}")
             await reply.reply_text("\n".join(lines))
             return True
 
@@ -1343,19 +1537,13 @@ async def handle_command(msg, reply) -> bool:
     if sub == "start":
         mailboxes = _get_mailboxes(company_id)
         if not mailboxes:
-            # Try legacy shared config
-            email_addr, password, _, _ = _get_default_credentials()
-            if not email_addr or not password:
-                await reply.reply_text(
-                    "No accounts configured. Add one:\n"
-                    "/mailwatch account add your@gmail.com your-app-password\n\n"
-                    "Or use shared config:\n"
-                    "/config mailwatch MAILWATCH_EMAIL your@gmail.com\n"
-                    "/config mailwatch MAILWATCH_APP_PASSWORD your-app-password"
-                )
-                return True
-            # Create from shared config (backward compat)
-            mailboxes = [_get_or_create_mailbox(company_id)]
+            await reply.reply_text(
+                "No accounts configured. Add one:\n"
+                "/mailwatch account add your@gmail.com your-app-password\n\n"
+                "Or edit config.yaml:\n"
+                "plugin_settings.mailwatch.mailboxes"
+            )
+            return True
 
         await reply.send_typing()
         results = []
@@ -1365,11 +1553,7 @@ async def handle_command(msg, reply) -> bool:
                 results.append(f"{mb['email']}: {result}")
                 continue
 
-            _db().execute(
-                "UPDATE mailboxes SET active = 1, last_error = '' WHERE id = ?",
-                (mb["id"],),
-            )
-            _db().commit()
+            _update_mailbox_state(mb["email"], active=1, last_error="")
 
             enqueue(
                 "mailwatch_poll",
@@ -1386,7 +1570,7 @@ async def handle_command(msg, reply) -> bool:
         ).fetchone()
         if not existing_wd:
             enqueue(
-                "mailwatch_watchdog", {},
+                "mailwatch_watchdog", {"company_id": company_id},
                 run_at=datetime.now() + timedelta(minutes=5),
                 max_attempts=1,
             )
@@ -1397,8 +1581,7 @@ async def handle_command(msg, reply) -> bool:
     if sub == "stop":
         mailboxes = _get_mailboxes(company_id)
         for mb in mailboxes:
-            _db().execute("UPDATE mailboxes SET active = 0 WHERE id = ?", (mb["id"],))
-        _db().commit()
+            _update_mailbox_state(mb["email"], active=0)
         count = len(mailboxes)
         await reply.reply_text(f"Polling stopped for {count} account(s).")
         return True
@@ -1409,12 +1592,10 @@ async def handle_command(msg, reply) -> bool:
             return True
 
         rid = int(args[1])
-        rule = _db().execute(
-            "SELECT * FROM rules WHERE id = ? AND company_id = ?",
-            (rid, company_id),
-        ).fetchone()
+        rules = _get_rules()
+        rule = next((r for r in rules if r["id"] == rid), None)
         if not rule:
-            await reply.reply_text(f"Rule #{rid} not found.")
+            await reply.reply_text(f"Rule #{rid} not found. You have {len(rules)} rules.")
             return True
 
         await reply.send_typing()
@@ -1432,7 +1613,7 @@ async def handle_command(msg, reply) -> bool:
                 if not msg_data or not msg_data[0]:
                     continue
                 email_data = _parse_email(msg_data[0][1])
-                if await _match_rule(dict(rule), email_data):
+                if await _match_rule(rule, email_data):
                     matches.append(f"  {email_data['sender']}: {email_data['subject'][:60]}")
 
             conn.close()
@@ -1480,7 +1661,7 @@ async def handle_command(msg, reply) -> bool:
             await reply.reply_text(f"Email sent to {to_addr}\nSubject: {subject}")
         else:
             await reply.reply_text(
-                "Failed to send. Check AGENTMAIL_API_KEY and AGENTMAIL_INBOX_ID config."
+                "Failed to send. Check agentmail_api_key and agentmail_address config."
             )
         return True
 

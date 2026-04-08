@@ -31,7 +31,7 @@ When `agentmail_api_key` is configured, the `draft_reply` action can send emails
 
 ## Multiple Inboxes
 
-Add multiple email accounts via slash commands. Each account is polled independently.
+All mailboxes are configured in config.yaml under `plugin_settings.mailwatch.mailboxes`. You can also add/remove via slash commands (which write to config.yaml).
 
 ```
 /mailwatch account add user@gmail.com abcd-efgh-ijkl-mnop
@@ -39,8 +39,6 @@ Add multiple email accounts via slash commands. Each account is polled independe
 /mailwatch account list
 /mailwatch account remove user@gmail.com
 ```
-
-The first account can also be configured via `plugin_settings.mailwatch` in config.yaml (shared config). Additional accounts must be added via `/mailwatch account add`.
 
 For Gmail, use an [App Password](https://myaccount.google.com/apppasswords) (not your regular password). Default IMAP host is `imap.gmail.com` — pass a third argument for other providers.
 
@@ -51,19 +49,43 @@ All settings live in `plugin_settings.mailwatch` in config.yaml:
 ```yaml
 plugin_settings:
   mailwatch:
-    # IMAP (required for polling)
-    mailwatch_email: client@gmail.com
-    mailwatch_app_password: xxxx-xxxx-xxxx-xxxx
-    mailwatch_imap_host: imap.gmail.com
-    mailwatch_notify_chat: '60123456789@s.whatsapp.net'
+    mailwatch_notify_chat: '60123456789@s.whatsapp.net'  # global fallback notify chat
 
-    # AgentMail (optional)
+    # Mailboxes (each polled independently)
+    mailboxes:
+      - address: client@gmail.com
+        app_password: xxxx-xxxx-xxxx-xxxx
+        imap_host: imap.gmail.com              # optional, default: imap.gmail.com
+        notify_chat: '60123456789@s.whatsapp.net'  # optional, overrides global
+      - address: user@company.com
+        app_password: p4ssw0rd
+        imap_host: imap.company.com
+
+    # Rules (first match wins; managed via /mailwatch add or edit here)
+    rules:
+      - type: attachment
+        pattern: ".ics"
+        action: calendar
+      - type: keyword
+        field: subject               # subject, sender, body, any (default)
+        pattern: "invoice"
+        action: notify
+      - type: ai
+        pattern: "is this a meeting invitation?"
+        action: calendar
+    ai_fallback: true                # AI triage for unmatched emails (~$0.01/email)
+
+    # Legacy single-mailbox keys (still work if mailboxes list is empty):
+    # mailwatch_email: client@gmail.com
+    # mailwatch_app_password: xxxx-xxxx-xxxx-xxxx
+    # mailwatch_imap_host: imap.gmail.com
+
+    # AgentMail (optional — outbound sending + inbound webhook)
     agentmail_api_key: am_xxxxxxxxxx
-    agentmail_inbox_id: inbox_xxxxxxxx
-    agentmail_address: pa@ai.cupbots.com
+    agentmail_address: pa@ai.cupbots.com  # inbox address (used as sender + inbox_id)
     agentmail_display_name: "ClientName Assistant"
     agentmail_reply_to: admin@clientdomain.com
-    agentmail_webhook_secret: whsec_xxxxxxxxxx  # for inbound webhook verification
+    agentmail_webhook_secret: whsec_xxxxxxxxxx  # Svix secret for inbound via hub
 
     # Auto-send rules (unlisted categories require WhatsApp approval)
     auto_send_rules:
