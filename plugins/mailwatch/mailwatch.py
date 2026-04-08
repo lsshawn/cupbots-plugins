@@ -10,8 +10,9 @@ Commands:
   /mailwatch start            — Test connection and begin polling
   /mailwatch stop             — Stop polling
   /mailwatch test <rule_id>   — Test a rule against recent emails
-  /mailwatch account add <email> <app_password> [host]  — Add an email account (saves to config.yaml)
-  /mailwatch account remove <email>  — Remove an account (from config.yaml)
+  /mailwatch account add <email> <app_password> [host]  — Add an IMAP account
+  /mailwatch account connect <email>  — Connect a Gmail account via OAuth
+  /mailwatch account remove <email>  — Remove an account
   /mailwatch account list     — List all accounts
   /mailwatch send <to> <subject> -- <body>  — Send email via AgentMail
   /mailwatch sent [N]         — Show N most recent sent emails (default 10)
@@ -20,7 +21,9 @@ Commands:
 Rule format: /mailwatch add <type> [field] <pattern> -> <action>
   Types: keyword, regex, attachment, ai
   Fields: subject, sender, body, any (default: any)
-  Actions: notify, calendar, crm_update, draft_reply, custom
+  Actions: notify, calendar, crm_update, draft_reply
+
+Backends: Gmail OAuth (account connect), IMAP (account add), AgentMail webhook+outbound
 
 Examples:
   /mailwatch add keyword subject "invoice" -> notify
@@ -28,16 +31,18 @@ Examples:
   /mailwatch add attachment .ics -> calendar
   /mailwatch add ai "is this a client project update?" -> crm_update
   /mailwatch add keyword any "urgent" -> notify
-  /mailwatch account add user@gmail.com abcd-efgh-ijkl-mnop
   /mailwatch account add user@company.com p4ssw0rd imap.company.com
+  /mailwatch account connect me@gmail.com
   /mailwatch send user@example.com "Meeting follow-up" -- Hi, just following up...
 """
 
 import email as email_lib
 import email.utils
 import imaplib
+import importlib.util as _ilu
 import json
 import os
+import pathlib as _pl
 import re
 import time
 from datetime import datetime, timedelta
@@ -50,12 +55,18 @@ from cupbots.helpers.logger import get_logger
 
 log = get_logger("mailwatch")
 
+# Load sibling _gmail.py helper without depending on the plugin loader's package semantics
+_gmail_spec = _ilu.spec_from_file_location(
+    "mailwatch._gmail", _pl.Path(__file__).parent / "_gmail.py",
+)
+_gmail = _ilu.module_from_spec(_gmail_spec)
+_gmail_spec.loader.exec_module(_gmail)
+
 PLUGIN_NAME = "mailwatch"
 WA_API_URL = os.environ.get("WA_API_URL", "http://127.0.0.1:3100")
 VALID_RULE_TYPES = ("keyword", "regex", "attachment", "ai")
 VALID_FIELDS = ("subject", "sender", "body", "any")
-VALID_ACTIONS = ("notify", "calendar", "crm_update", "draft_reply", "custom")
-MVP_ACTIONS = ("notify", "calendar")
+VALID_ACTIONS = ("notify", "calendar", "crm_update", "draft_reply")
 _APPROVAL_TTL = 3600  # 1 hour, matches wa_router
 
 
@@ -124,50 +135,31 @@ def _get_plugin_settings() -> dict:
 
 
 def _get_mailboxes(company_id: str = "") -> list[dict]:
-    """Get all mailboxes from config.yaml. Falls back to legacy flat keys."""
+    """Get all mailboxes from config.yaml."""
     settings = _get_plugin_settings()
     mailboxes_cfg = settings.get("mailboxes", []) or []
 
-    if mailboxes_cfg:
-        result = []
-        for i, mb in enumerate(mailboxes_cfg):
-            address = mb.get("address", "")
-            if not address:
-                continue
-            state = _get_mailbox_state(address)
-            result.append({
-                "id": i + 1,
-                "email": address,
-                "app_password": mb.get("app_password", ""),
-                "imap_host": mb.get("imap_host", "imap.gmail.com"),
-                "imap_port": mb.get("imap_port", 993),
-                "notify_chat": mb.get("notify_chat", ""),
-                "poll_interval": mb.get("poll_interval", 300),
-                "active": state.get("active", 1),
-                "last_poll": state.get("last_poll", ""),
-                "last_error": state.get("last_error", ""),
-            })
-        return result
-
-    # Legacy fallback: single mailbox from flat keys
-    email_addr = settings.get("mailwatch_email", "")
-    password = settings.get("mailwatch_app_password", "")
-    if email_addr and password:
-        state = _get_mailbox_state(email_addr)
-        return [{
-            "id": 1,
-            "email": email_addr,
-            "app_password": password,
-            "imap_host": settings.get("mailwatch_imap_host", "imap.gmail.com"),
-            "imap_port": 993,
-            "notify_chat": "",
-            "poll_interval": 300,
+    result = []
+    for i, mb in enumerate(mailboxes_cfg):
+        address = mb.get("address", "")
+        if not address:
+            continue
+        state = _get_mailbox_state(address)
+        result.append({
+            "id": i + 1,
+            "email": address,
+            "backend": mb.get("backend", "imap"),
+            "app_password": mb.get("app_password", ""),
+            "imap_host": mb.get("imap_host", "imap.gmail.com"),
+            "imap_port": mb.get("imap_port", 993),
+            "gmail_tokens": mb.get("gmail_tokens", {}) or {},
+            "notify_chat": mb.get("notify_chat", ""),
+            "poll_interval": mb.get("poll_interval", 300),
             "active": state.get("active", 1),
             "last_poll": state.get("last_poll", ""),
             "last_error": state.get("last_error", ""),
-        }]
-
-    return []
+        })
+    return result
 
 
 def _get_mailbox(company_id: str = "", mailbox_id: int | None = None) -> dict | None:
@@ -204,6 +196,21 @@ def _update_mailbox_state(address: str, **kwargs):
                 (val, address),
             )
     _db().commit()
+
+
+def _persist_gmail_tokens(email_addr: str, refreshed: dict) -> None:
+    """Merge refreshed gmail tokens into the mailbox's config.yaml entry."""
+    from cupbots.config import update_config_key
+    settings = _get_plugin_settings()
+    mailboxes_list = list(settings.get("mailboxes", []) or [])
+    for i, mb in enumerate(mailboxes_list):
+        if mb.get("address") == email_addr:
+            existing = dict(mb.get("gmail_tokens") or {})
+            existing.update(refreshed)
+            mailboxes_list[i]["gmail_tokens"] = existing
+            update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
+            return
+    log.warning("_persist_gmail_tokens: mailbox %s not found in config", email_addr)
 
 
 def _get_notify_chat(mb: dict | None = None) -> str:
@@ -421,8 +428,56 @@ async def handle_approval(data: dict, wa_api_url: str) -> bool:
 
     chat = _get_notify_chat()
     ctx = WhatsAppReplyContext(chat, wa_api_url) if chat else None
+    approved = emoji_val in ("\U0001f44d", "\u2705", "\U0001f44c")  # 👍 ✅ 👌
+    backend = pending.get("backend", "agentmail")
 
-    if emoji_val in ("\U0001f44d", "\u2705", "\U0001f44c"):  # 👍 ✅ 👌
+    # Gmail backend: send the previously created Gmail draft via Gmail API
+    if backend == "gmail":
+        if approved:
+            try:
+                mailboxes = _get_mailboxes()
+                mb = next(
+                    (m for m in mailboxes if m["email"] == pending["mailbox_email"]),
+                    None,
+                )
+                if not mb:
+                    raise RuntimeError(f"Mailbox {pending['mailbox_email']} not found")
+                tokens = dict(mb.get("gmail_tokens") or {})
+                client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
+                client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
+                access_token, refreshed = await _gmail.ensure_access_token(
+                    tokens, client_id, client_secret,
+                )
+                if refreshed:
+                    _persist_gmail_tokens(mb["email"], refreshed)
+                await _gmail.send_draft(access_token, pending["gmail_draft_id"])
+                try:
+                    _db().execute(
+                        "INSERT INTO sent_emails "
+                        "(to_addr, subject, category, approved_by) "
+                        "VALUES (?, ?, 'gmail_draft', ?)",
+                        (pending["to"], pending["subject"][:200], data.get("sender", "")),
+                    )
+                    _db().commit()
+                except Exception as e:
+                    log.warning("Failed to record sent gmail draft: %s", e)
+                if ctx:
+                    await ctx.reply_text(f"Gmail reply sent to {pending['to']}")
+            except Exception as e:
+                log.error("Gmail send_draft failed: %s", e)
+                if ctx:
+                    await ctx.reply_text(
+                        f"Failed to send Gmail draft: {e}\nDraft remains in Gmail."
+                    )
+        else:
+            if ctx:
+                await ctx.reply_text(
+                    f"Gmail draft kept for {pending['to']} — edit/send manually in gmail.com."
+                )
+        return True
+
+    # AgentMail backend (default)
+    if approved:
         result = await _agentmail_send(
             to=pending["to"],
             subject=pending["subject"],
@@ -551,8 +606,8 @@ async def _match_rule(rule: dict, email_data: dict) -> bool:
 # Actions
 # ---------------------------------------------------------------------------
 
-async def _action_notify(email_data: dict, rule: dict, company_id: str):
-    chat = _get_notify_chat()
+async def _action_notify(email_data: dict, rule: dict, company_id: str, mb: dict | None = None):
+    chat = _get_notify_chat(mb)
     if not chat:
         log.warning("No notify chat configured")
         return
@@ -566,7 +621,7 @@ async def _action_notify(email_data: dict, rule: dict, company_id: str):
     await ctx.reply_text(summary)
 
 
-async def _action_calendar(email_data: dict, rule: dict, company_id: str):
+async def _action_calendar(email_data: dict, rule: dict, company_id: str, mb: dict | None = None):
     try:
         from cupbots.helpers.calendar_client import get_calendar_client
     except ImportError:
@@ -585,7 +640,7 @@ async def _action_calendar(email_data: dict, rule: dict, company_id: str):
                 log.error("Failed to import .ics from %s: %s", email_data["subject"], e)
 
     if imported:
-        chat = _get_notify_chat()
+        chat = _get_notify_chat(mb)
         if chat:
             ctx = WhatsAppReplyContext(chat, WA_API_URL)
             await ctx.reply_text(
@@ -593,7 +648,7 @@ async def _action_calendar(email_data: dict, rule: dict, company_id: str):
             )
 
 
-async def _action_crm_update(email_data: dict, rule: dict, company_id: str):
+async def _action_crm_update(email_data: dict, rule: dict, company_id: str, mb: dict | None = None):
     try:
         from cupbots.helpers.llm import ask_llm
         from cupbots.helpers.db import get_plugin_db
@@ -614,7 +669,7 @@ async def _action_crm_update(email_data: dict, rule: dict, company_id: str):
     )
 
     if not result or not isinstance(result, dict):
-        await _action_notify(email_data, rule, company_id)
+        await _action_notify(email_data, rule, company_id, mb)
         return
 
     try:
@@ -639,10 +694,10 @@ async def _action_crm_update(email_data: dict, rule: dict, company_id: str):
     except Exception as e:
         log.warning("CRM update failed (contacts plugin may not be installed): %s", e)
 
-    await _action_notify(email_data, rule, company_id)
+    await _action_notify(email_data, rule, company_id, mb)
 
 
-async def _action_draft_reply(email_data: dict, rule: dict, company_id: str):
+async def _action_draft_reply(email_data: dict, rule: dict, company_id: str, mb: dict | None = None):
     try:
         from cupbots.helpers.llm import ask_llm
     except ImportError:
@@ -663,7 +718,7 @@ async def _action_draft_reply(email_data: dict, rule: dict, company_id: str):
     if not draft:
         return
 
-    chat = _get_notify_chat()
+    chat = _get_notify_chat(mb)
     if not chat:
         return
 
@@ -672,6 +727,56 @@ async def _action_draft_reply(email_data: dict, rule: dict, company_id: str):
     reply_subject = f"Re: {email_data['subject']}"
     sender_addr = _extract_email_addr(email_data["sender"])
     in_reply_to = email_data.get("message_id", "")
+
+    # Gmail backend: create real draft in user's Gmail account, ping WhatsApp for approval
+    if mb and mb.get("backend") == "gmail":
+        tokens = dict(mb.get("gmail_tokens") or {})
+        client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
+        client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
+        try:
+            access_token, refreshed = await _gmail.ensure_access_token(
+                tokens, client_id, client_secret,
+            )
+            if refreshed:
+                _persist_gmail_tokens(mb["email"], refreshed)
+
+            rfc = _gmail.build_reply_rfc822(
+                from_addr=mb["email"],
+                to_addr=sender_addr,
+                subject=reply_subject,
+                body=draft,
+                in_reply_to=in_reply_to,
+                references=in_reply_to,
+            )
+            draft_result = await _gmail.create_draft(
+                access_token, rfc,
+                thread_id=email_data.get("_gmail_thread_id") or None,
+            )
+            gmail_draft_id = draft_result.get("id", "")
+        except Exception as e:
+            log.error("Gmail draft creation failed: %s", e)
+            ctx = WhatsAppReplyContext(chat, WA_API_URL)
+            await ctx.reply_text(f"Gmail draft creation failed: {e}")
+            return
+
+        ctx = WhatsAppReplyContext(chat, WA_API_URL)
+        approval_text = (
+            f"[Gmail Draft] {mb['email']}\n"
+            f"To: {sender_addr}\n"
+            f"{reply_subject}\n---\n{draft}\n---\n"
+            f"Draft saved in Gmail. React \U0001f44d to send, \U0001f44e to keep as draft."
+        )
+        msg_id = await ctx.send_and_get_id(approval_text)
+        if msg_id:
+            _pending_email_approvals[msg_id] = {
+                "backend": "gmail",
+                "mailbox_email": mb["email"],
+                "gmail_draft_id": gmail_draft_id,
+                "to": sender_addr,
+                "subject": reply_subject,
+                "timestamp": time.time(),
+            }
+        return
 
     # If AgentMail is configured, use auto-send or approval flow
     if _get_agentmail():
@@ -745,34 +850,11 @@ async def _action_draft_reply(email_data: dict, rule: dict, company_id: str):
         )
 
 
-async def _action_custom(email_data: dict, rule: dict, company_id: str):
-    try:
-        from cupbots.helpers.llm import ask_llm
-    except ImportError:
-        return
-
-    config = json.loads(rule.get("action_config", "{}"))
-    prompt = config.get("prompt", "Analyze this email.")
-
-    result = await ask_llm(
-        f"{prompt}\n\nFrom: {email_data['sender']}\n"
-        f"Subject: {email_data['subject']}\n"
-        f"Body:\n{email_data['body_text'][:3000]}",
-        max_tokens=1024,
-    )
-
-    chat = _get_notify_chat()
-    if chat and result:
-        ctx = WhatsAppReplyContext(chat, WA_API_URL)
-        await ctx.reply_text(f"Mailwatch AI [{rule['name'] or rule['id']}]:\n\n{result}")
-
-
 _ACTIONS = {
     "notify": _action_notify,
     "calendar": _action_calendar,
     "crm_update": _action_crm_update,
     "draft_reply": _action_draft_reply,
-    "custom": _action_custom,
 }
 
 
@@ -808,81 +890,216 @@ async def _ai_fallback(email_data: dict, mb: dict | None = None):
     metadata = load_plugin_metadata(plugin_dirs)
     tools = build_tools(metadata, provider=provider)
 
-    # Extract .ics content so the LLM can see actual event date/time
-    ics_content = ""
+    # --- Step 1: Try to directly import .ics attachments (no LLM needed) ---
+    ics_imported = []
+    ics_content_raw = ""
     attachment_names = []
     for att in email_data.get("attachments", []):
-        attachment_names.append(att["filename"])
-        if att["filename"].lower().endswith(".ics") or att.get("content_type") == "text/calendar":
+        attachment_names.append(att.get("filename", ""))
+        if (att.get("filename", "").lower().endswith(".ics")
+                or att.get("content_type") == "text/calendar"):
             att_data = att.get("data", b"")
-            if isinstance(att_data, bytes):
-                ics_content += att_data.decode("utf-8", errors="replace")
-            else:
-                ics_content += str(att_data)
+            if att_data:
+                ics_text = att_data.decode("utf-8", errors="replace") if isinstance(att_data, bytes) else str(att_data)
+                ics_content_raw = ics_text
+                # Strip RECURRENCE-ID — we want standalone events, not occurrence overrides
+                # (CalDAV can't store overrides without parent recurring events)
+                if "RECURRENCE-ID" in ics_text:
+                    log.info("AI fallback: stripping RECURRENCE-ID from .ics")
+                    cleaned_lines = []
+                    for line in ics_text.split("\n"):
+                        if line.startswith("RECURRENCE-ID"):
+                            continue
+                        cleaned_lines.append(line)
+                    ics_text = "\n".join(cleaned_lines)
+                    # Also generate a new UID to avoid conflicts with any existing event
+                    import uuid as _uuid
+                    ics_text = re.sub(r'^UID:.*$', f'UID:{_uuid.uuid4()}', ics_text, count=1, flags=re.MULTILINE)
 
+                # Direct import via calendar client — preserves original timezone
+                try:
+                    from cupbots.helpers.calendar_client import get_calendar_client
+                    cal_client = get_calendar_client()
+                    imported = cal_client.add_event_from_ics(ics_text)
+                    ics_imported.extend(imported)
+                    log.info("AI fallback: directly imported %d event(s) from .ics", len(imported))
+                except Exception as e:
+                    log.warning("AI fallback: .ics direct import failed: %s", e)
+                    # Last resort: parse with icalendar directly and create event programmatically
+                    try:
+                        from icalendar import Calendar as _iCal
+                        vcal = _iCal.from_ical(ics_content_raw)
+                        cal_client = get_calendar_client()
+                        for component in vcal.walk("VEVENT"):
+                            dtstart = component.get("dtstart").dt
+                            dtend_obj = component.get("dtend")
+                            dtend = dtend_obj.dt if dtend_obj else None
+                            if not dtend:
+                                from datetime import timedelta as _td
+                                dtend = dtstart + _td(hours=1)
+                            summary = str(component.get("summary", "Meeting"))
+                            location = str(component.get("location", ""))
+                            uid = cal_client.add_event(summary, dtstart, dtend, location=location)
+                            log.info("AI fallback: created fallback event uid=%s", uid)
+                            from cupbots.helpers.calendar_client import TZ as _tz
+                            ics_imported.append({
+                                "summary": summary,
+                                "start": dtstart.astimezone(_tz) if hasattr(dtstart, 'astimezone') and dtstart.tzinfo else dtstart,
+                                "end": dtend.astimezone(_tz) if hasattr(dtend, 'astimezone') and dtend.tzinfo else dtend,
+                                "location": location,
+                                "uid": uid,
+                            })
+                    except Exception as e2:
+                        log.warning("AI fallback: icalendar fallback also failed: %s", e2)
+
+    # --- Step 2: Build event summary for imported events ---
+    from cupbots.helpers.calendar_client import TZ as _cal_tz
+    event_summary_lines = []
+    for ev in ics_imported:
+        start = ev["start"]
+        end = ev["end"]
+        if start.tzinfo:
+            start = start.astimezone(_cal_tz)
+        if end.tzinfo:
+            end = end.astimezone(_cal_tz)
+        tz_label = str(_cal_tz).split("/")[-1]
+        line = f"- {ev['summary']}: {start.strftime('%a %d %b %H:%M')} – {end.strftime('%H:%M')} ({tz_label})"
+        if ev.get("location"):
+            line += f"\n  Location: {ev['location']}"
+        if ev.get("url"):
+            line += f"\n  Link: {ev['url']}"
+        event_summary_lines.append(line)
+
+    # --- Step 3: Build prompt for LLM (summary + any remaining actions) ---
     prompt = (
-        f"An email arrived that needs triage. Analyze it and take appropriate action.\n\n"
+        f"An email arrived that needs triage.\n\n"
         f"From: {email_data['sender']}\n"
         f"Subject: {email_data['subject']}\n"
         f"Body:\n{email_data['body_text'][:3000]}\n\n"
-        f"Attachments: {', '.join(attachment_names) or 'none'}\n"
+        f"Attachments: {', '.join(a for a in attachment_names if a) or 'none'}\n"
     )
-    if ics_content:
+
+    if ics_imported:
         prompt += (
-            f"\n--- .ics calendar data (use DTSTART/DTEND for the actual event time) ---\n"
-            f"{ics_content[:2000]}\n"
-            f"--- end .ics ---\n"
+            f"\nCALENDAR EVENTS ALREADY IMPORTED (do NOT create these again):\n"
+            + "\n".join(event_summary_lines) + "\n"
         )
+        prompt += (
+            f"\nInstructions:\n"
+            f"- Calendar events from the .ics have already been imported (listed above)\n"
+            f"- Just provide a summary of the email and confirm the events were added\n"
+            f"- Include the meeting link if available\n"
+        )
+    else:
+        # No .ics data — try to extract meeting details from email body via LLM
+        # and create event programmatically (more reliable than agent tool calls)
+        meeting_created = False
+        body = email_data.get("body_text", "")[:3000]
+        if any(kw in body.lower() for kw in ["zoom", "meet.google", "teams.microsoft",
+                "meeting", "invitation", "scheduled", "calendar"]):
+            try:
+                from cupbots.helpers.llm import ask_llm, _extract_json
+                extract_prompt = (
+                    f"Extract meeting details from this email. Reply with ONLY a JSON object.\n\n"
+                    f"Email subject: {email_data['subject']}\n"
+                    f"Email body:\n{body}\n\n"
+                    f"Return JSON: {{\"title\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", "
+                    f"\"timezone\": \"...\", \"duration_minutes\": N, \"meeting_link\": \"...\"}}\n\n"
+                    f"Rules:\n"
+                    f"- Extract the MEETING date/time, NOT the email sent/forwarded timestamp\n"
+                    f"- Look for phrases like 'scheduled for', 'join at', or calendar header lines\n"
+                    f"- The timezone should be the timezone mentioned in the invitation (e.g. AEST, PST, etc.)\n"
+                    f"- If no explicit time is found in the body, return null\n"
+                    f"- Extract Zoom/Meet/Teams links from the body\n"
+                    f"- Default duration is 60 minutes unless specified"
+                )
+                extract_result = await ask_llm(extract_prompt, json_mode=False, timeout=30)
+                meeting_data = _extract_json(extract_result)
+                if meeting_data and isinstance(meeting_data, dict) and meeting_data.get("date") and meeting_data.get("time"):
+                    # Build /event command and execute it
+                    from cupbots.run_command import run
+                    event_parts = [meeting_data["title"]]
+                    event_parts.append(meeting_data["date"])
+                    event_parts.append(meeting_data["time"])
+                    # Include timezone if not MYT
+                    tz = meeting_data.get("timezone", "")
+                    if tz and "kuala" not in tz.lower() and "myt" not in tz.lower() and "malaysia" not in tz.lower():
+                        event_parts.append(tz)
+                    if meeting_data.get("meeting_link"):
+                        event_parts.append(meeting_data["meeting_link"])
+                    event_cmd = "/event " + " ".join(event_parts)
+                    log.info("AI fallback: extracted meeting, running: %s", event_cmd[:120])
+                    event_output = await run(event_cmd, chat, "")
+                    event_summary_lines.append(f"Created event via email extraction:\n{event_output}")
+                    meeting_created = True
+                else:
+                    log.info("AI fallback: no meeting details extracted from body")
+            except Exception as e:
+                log.warning("AI fallback: meeting extraction failed: %s", e)
+
+        prompt += (
+            f"\nInstructions:\n"
+        )
+        if meeting_created:
+            prompt += f"- Calendar event was already created (listed above). Just summarize the email.\n"
+        else:
+            prompt += (
+                f"- If this is a meeting invitation, note the meeting details but do NOT try to create a calendar event.\n"
+                f"  The event could not be auto-created. List the date, time, timezone, and link for the user.\n"
+            )
+
     prompt += (
-        f"\nInstructions:\n"
-        f"- If this is a meeting invitation or calendar event, you MUST call the run_command tool "
-        f"with '/event <title> <date> <time> <meeting_link>' to actually create the calendar event. "
-        f"Extract the date and time from the .ics DTSTART field, NOT from the email timestamp. "
-        f"Always include the meeting link (Zoom, Google Meet, Teams, etc.) from the email body or .ics LOCATION/URL field. "
-        f"Example: /event Team Standup 2026-04-08 10:00 https://zoom.us/j/123\n"
-        f"Do NOT just say you created it — you must call the tool.\n"
         f"- If this is informational only, just summarize it\n"
-        f"- Always start with a brief summary of the email\n"
-        f"- After taking action, report what you actually did (include the tool output)"
+        f"- If drafting a reply, write the draft body directly (no quoting with >)\n\n"
+        f"OUTPUT FORMAT (strict):\n"
+        f"### Summary\n"
+        f"<2-3 line summary of the email>\n\n"
+        f"### Actions Taken\n"
+        f"<what you did: imported events or meeting details (include date time and timezone), tool output, draft text, or 'None — informational only'>"
     )
 
     system = (
-        "You are an email triage assistant. You have tools to execute bot commands. "
-        "CRITICAL: To create calendar events, you MUST call the run_command tool. "
-        "Saying 'I created an event' without calling the tool is a lie. "
-        "Always use tools for actions, then report the result."
+        "You are an email triage assistant. "
+        "When calendar events were already imported or created, just confirm them. "
+        "Follow the OUTPUT FORMAT exactly."
     )
+    # No tools needed — event creation is handled above
+    tools = []
 
-    log.info("AI fallback: provider=%s, tools available: %d definitions", provider, len(tools))
-    if not tools:
-        log.warning("AI fallback: no tools built — agent cannot execute commands")
+    log.info("AI fallback: provider=%s, tools=%d, ics_imported=%d",
+             provider, len(tools), len(ics_imported))
 
     ctx = WhatsAppReplyContext(chat, WA_API_URL)
 
+    # Format sender as "Name (Company)" if parseable
+    sender_raw = email_data["sender"]
+    sender_display = sender_raw
+    import re as _re_fmt
+    m = _re_fmt.match(r'^"?([^"<]+?)"?\s*<([^>]+)>', sender_raw)
+    if m:
+        name = m.group(1).strip()
+        email_addr = m.group(2).strip()
+        domain = email_addr.split("@")[-1] if "@" in email_addr else ""
+        company_part = domain.split(".")[0] if domain else ""
+        generic = {"gmail", "yahoo", "hotmail", "outlook", "icloud", "protonmail", "aol"}
+        if company_part and company_part.lower() not in generic:
+            sender_display = f"{name} ({company_part.capitalize()})"
+        else:
+            sender_display = name
+
     try:
-        result = await run_agent_loop(
-            prompt,
-            system_prompt=system,
-            tools=tools,
-            max_turns=5,
-            chat_id=chat,
-            company_id="",
-            provider=provider,
-        )
-        response_text = result.get("text", "").strip()
+        # Summary via ask_llm (no tools needed — event creation handled above)
+        from cupbots.helpers.llm import ask_llm
+        response_text = await ask_llm(prompt, system=system, max_tokens=512) or ""
+        log.info("AI fallback: summary generated for '%s'", email_data["subject"][:60])
+
         if response_text:
             await ctx.reply_text(
                 f"📧 *Mailwatch AI Triage*\n"
-                f"From: {email_data['sender']}\n"
+                f"From: {sender_display}\n"
                 f"Subject: {email_data['subject']}\n\n"
                 f"{response_text}"
             )
-        turns = result.get("turns", 0)
-        log.info("AI fallback: triaged '%s' in %d turns (cost=$%.4f)",
-                 email_data["subject"][:60], turns,
-                 result.get("estimated_cost_usd", 0))
-        if turns <= 1:
-            log.warning("AI fallback: only %d turn — LLM likely did not call any tools", turns)
     except Exception as e:
         log.error("AI fallback agent loop failed: %s", e)
         # Fall back to simple summary
@@ -898,9 +1115,10 @@ async def _ai_fallback(email_data: dict, mb: dict | None = None):
             if summary:
                 await ctx.reply_text(
                     f"📧 *Mailwatch AI Triage*\n"
-                    f"From: {email_data['sender']}\n"
+                    f"From: {sender_display}\n"
                     f"Subject: {email_data['subject']}\n\n"
-                    f"{summary}"
+                    f"### Summary\n{summary}\n\n"
+                    f"### Actions Taken\nNone — summary only (agent error fallback)"
                 )
         except Exception:
             pass
@@ -942,7 +1160,7 @@ def _test_connection(mb: dict) -> str:
 # ---------------------------------------------------------------------------
 
 async def _handle_poll_job(payload: dict, bot=None):
-    """Main polling job. Fetch unseen emails, match rules, execute actions."""
+    """Main polling job. Dispatches to backend-specific poll function."""
     company_id = payload.get("company_id", "")
     mailbox_id = payload.get("mailbox_id", 1)
 
@@ -951,27 +1169,37 @@ async def _handle_poll_job(payload: dict, bot=None):
         log.info("Mailbox %s inactive for %s, not rescheduling", mailbox_id, company_id)
         return
 
+    backend = mb.get("backend", "imap")
     try:
-        conn = _connect_imap(mb)
-        conn.select("INBOX")
+        if backend == "gmail":
+            await _poll_gmail(mb, mailbox_id, company_id)
+        else:
+            await _poll_imap(mb, mailbox_id, company_id)
+        _update_mailbox_state(mb["email"], last_poll=datetime.now().isoformat(), last_error="")
+    except Exception as e:
+        log.error("Poll failed for %s (%s): %s", mb["email"], backend, e)
+        _update_mailbox_state(mb["email"], last_error=str(e)[:500])
+        raise  # Let jobs.py handle retry/backoff
 
+    _reschedule(payload, mb["poll_interval"])
+
+
+async def _poll_imap(mb: dict, mailbox_id: int, company_id: str):
+    """Poll an IMAP mailbox for unseen mail and process via the rule pipeline."""
+    conn = _connect_imap(mb)
+    try:
+        conn.select("INBOX")
         _, data = conn.search(None, "UNSEEN")
         uids = data[0].split() if data[0] else []
-
         if not uids:
-            conn.close()
-            conn.logout()
-            _update_mailbox_state(mb["email"], last_poll=datetime.now().isoformat(), last_error="")
-            _reschedule(payload, mb["poll_interval"])
             return
 
-        # Load active rules from config.yaml
         rules = [r for r in _get_rules() if r["active"]]
 
         for uid in uids:
             uid_str = uid.decode()
 
-            # Dedup check
+            # Dedup
             existing = _db().execute(
                 "SELECT 1 FROM processed_emails WHERE mailbox_id = ? AND uid = ?",
                 (mailbox_id, uid_str),
@@ -979,14 +1207,12 @@ async def _handle_poll_job(payload: dict, bot=None):
             if existing:
                 continue
 
-            # Fetch email
             _, msg_data = conn.fetch(uid, "(RFC822)")
             if not msg_data or not msg_data[0]:
                 continue
             raw = msg_data[0][1]
             email_data = _parse_email(raw)
 
-            # Match rules (first match wins)
             matched_rule = None
             for rule in rules:
                 try:
@@ -997,42 +1223,16 @@ async def _handle_poll_job(payload: dict, bot=None):
                     log.error("Rule %d match error: %s", rule["id"], e)
 
             if matched_rule:
-                # Execute action
                 action_fn = _ACTIONS.get(matched_rule["action"])
                 if action_fn:
                     try:
-                        await action_fn(email_data, matched_rule, company_id)
+                        await action_fn(email_data, matched_rule, company_id, mb)
                     except Exception as e:
                         log.error("Action %s failed for rule %d: %s",
                                   matched_rule["action"], matched_rule["id"], e)
 
-                # Emit events for inter-plugin hooks (wiki, etc.)
-                try:
-                    from cupbots.helpers.events import emit
-                    await emit("email.received", {
-                        "company_id": company_id,
-                        "subject": email_data["subject"],
-                        "sender": email_data["sender"],
-                        "body_text": email_data["body_text"][:5000],
-                        "attachments": [
-                            {"filename": a["filename"], "content_type": a["content_type"]}
-                            for a in email_data["attachments"]
-                        ],
-                        "rule_action": matched_rule["action"],
-                    })
-                    for att in email_data["attachments"]:
-                        if att["filename"].lower().endswith(".ics") or att["content_type"] == "text/calendar":
-                            att_data = att.get("data", b"")
-                            await emit("email.ics_received", {
-                                "company_id": company_id,
-                                "subject": email_data["subject"],
-                                "sender": email_data["sender"],
-                                "ics_text": att_data.decode("utf-8", errors="replace") if isinstance(att_data, bytes) else str(att_data),
-                            })
-                except Exception as e:
-                    log.debug("Event emission failed (non-critical): %s", e)
+                await _emit_email_received(company_id, email_data, matched_rule["action"])
 
-                # Record processed
                 _db().execute(
                     "INSERT OR IGNORE INTO processed_emails "
                     "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
@@ -1041,14 +1241,9 @@ async def _handle_poll_job(payload: dict, bot=None):
                      email_data["subject"][:200], email_data["sender"][:200],
                      matched_rule["id"], matched_rule["action"]),
                 )
-
-                # Update rule stats
                 _update_rule_stats(matched_rule["rule_key"])
-
-                # Mark as seen in IMAP
                 conn.store(uid, "+FLAGS", "\\Seen")
             else:
-                # No rule matched — try AI fallback
                 if _ai_fallback_enabled():
                     await _ai_fallback(email_data, mb)
                     _db().execute(
@@ -1060,18 +1255,137 @@ async def _handle_poll_job(payload: dict, bot=None):
                     )
                     _db().commit()
                     conn.store(uid, "+FLAGS", "\\Seen")
-                # else: email stays UNSEEN, will be rechecked on next poll
+                # else: leave UNSEEN so newer rules can catch it
+        _db().commit()
+    finally:
+        try:
+            conn.close()
+            conn.logout()
+        except Exception:
+            pass
 
-        conn.close()
-        conn.logout()
-        _update_mailbox_state(mb["email"], last_poll=datetime.now().isoformat(), last_error="")
 
+async def _poll_gmail(mb: dict, mailbox_id: int, company_id: str):
+    """Poll a Gmail mailbox via the Gmail API and process via the rule pipeline."""
+    tokens = dict(mb.get("gmail_tokens") or {})
+    if not tokens.get("refresh_token"):
+        raise RuntimeError(
+            f"No gmail_tokens for {mb['email']} — run /mailwatch account connect"
+        )
+
+    client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
+    client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
+
+    access_token, refreshed = await _gmail.ensure_access_token(
+        tokens, client_id, client_secret,
+    )
+    if refreshed:
+        _persist_gmail_tokens(mb["email"], refreshed)
+
+    msg_ids = await _gmail.list_unread_ids(access_token, max_results=25)
+    if not msg_ids:
+        return
+
+    rules = [r for r in _get_rules() if r["active"]]
+
+    for gmail_id in msg_ids:
+        uid_str = f"gmail:{gmail_id}"
+
+        existing = _db().execute(
+            "SELECT 1 FROM processed_emails WHERE mailbox_id = ? AND uid = ?",
+            (mailbox_id, uid_str),
+        ).fetchone()
+        if existing:
+            continue
+
+        try:
+            fetched = await _gmail.fetch_message(access_token, gmail_id)
+        except Exception as e:
+            log.error("Gmail fetch failed for %s: %s", gmail_id, e)
+            continue
+
+        email_data = _parse_email(fetched["raw"])
+        email_data["_gmail_thread_id"] = fetched.get("thread_id", "")
+        email_data["_gmail_id"] = gmail_id
+
+        matched_rule = None
+        for rule in rules:
+            try:
+                if await _match_rule(rule, email_data):
+                    matched_rule = dict(rule)
+                    break
+            except Exception as e:
+                log.error("Rule %d match error: %s", rule["id"], e)
+
+        if matched_rule:
+            action_fn = _ACTIONS.get(matched_rule["action"])
+            if action_fn:
+                try:
+                    await action_fn(email_data, matched_rule, company_id, mb)
+                except Exception as e:
+                    log.error("Action %s failed for rule %d: %s",
+                              matched_rule["action"], matched_rule["id"], e)
+
+            await _emit_email_received(company_id, email_data, matched_rule["action"])
+
+            _db().execute(
+                "INSERT OR IGNORE INTO processed_emails "
+                "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (company_id, mailbox_id, uid_str, email_data["message_id"],
+                 email_data["subject"][:200], email_data["sender"][:200],
+                 matched_rule["id"], matched_rule["action"]),
+            )
+            _update_rule_stats(matched_rule["rule_key"])
+            try:
+                await _gmail.mark_read(access_token, gmail_id)
+            except Exception as e:
+                log.warning("Gmail mark_read failed for %s: %s", gmail_id, e)
+        else:
+            if _ai_fallback_enabled():
+                await _ai_fallback(email_data, mb)
+                _db().execute(
+                    "INSERT OR IGNORE INTO processed_emails "
+                    "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
+                    "VALUES ('', ?, ?, ?, ?, ?, NULL, 'ai_fallback')",
+                    (mailbox_id, uid_str, email_data["message_id"],
+                     email_data["subject"][:200], email_data["sender"][:200]),
+                )
+                _db().commit()
+                try:
+                    await _gmail.mark_read(access_token, gmail_id)
+                except Exception as e:
+                    log.warning("Gmail mark_read failed for %s: %s", gmail_id, e)
+            # else: stays unread so a newly added rule can catch it next poll
+    _db().commit()
+
+
+async def _emit_email_received(company_id: str, email_data: dict, rule_action: str):
+    """Emit email.received and email.ics_received events for inter-plugin hooks."""
+    try:
+        from cupbots.helpers.events import emit
+        await emit("email.received", {
+            "company_id": company_id,
+            "subject": email_data["subject"],
+            "sender": email_data["sender"],
+            "body_text": email_data["body_text"][:5000],
+            "attachments": [
+                {"filename": a["filename"], "content_type": a["content_type"]}
+                for a in email_data["attachments"]
+            ],
+            "rule_action": rule_action,
+        })
+        for att in email_data["attachments"]:
+            if att["filename"].lower().endswith(".ics") or att["content_type"] == "text/calendar":
+                att_data = att.get("data", b"")
+                await emit("email.ics_received", {
+                    "company_id": company_id,
+                    "subject": email_data["subject"],
+                    "sender": email_data["sender"],
+                    "ics_text": att_data.decode("utf-8", errors="replace") if isinstance(att_data, bytes) else str(att_data),
+                })
     except Exception as e:
-        log.error("Poll failed for %s: %s", company_id, e)
-        _update_mailbox_state(mb["email"], last_error=str(e)[:500])
-        raise  # Let jobs.py handle retry/backoff
-
-    _reschedule(payload, mb["poll_interval"])
+        log.debug("Event emission failed (non-critical): %s", e)
 
 
 def _reschedule(payload: dict, interval: int):
@@ -1151,15 +1465,20 @@ async def process_agentmail_webhook(body: str, headers: dict) -> None:
     data = payload.get("message") or payload.get("data") or payload
 
     # Convert AgentMail payload to email_data format (same as _parse_email)
-    # Extract attachment data — AgentMail may include content inline or as URL
+    # Extract attachment data — AgentMail webhooks only include attachment_id,
+    # so we download content via the AgentMail API
     attachments = []
+    message_id = data.get("message_id", data.get("id", ""))
+    inbox_id = (resolve_plugin_setting(PLUGIN_NAME, "agentmail_address")
+                or resolve_plugin_setting(PLUGIN_NAME, "agentmail_inbox_id") or "")
+
     for a in data.get("attachments", []):
         att = {
             "filename": a.get("filename", ""),
             "content_type": a.get("content_type", a.get("mime_type", "")),
             "data": b"",
         }
-        # Try inline content (base64 or raw)
+        # Try inline content first (base64 or raw)
         content = a.get("content", a.get("data", ""))
         if content:
             if isinstance(content, str):
@@ -1170,19 +1489,66 @@ async def process_agentmail_webhook(body: str, headers: dict) -> None:
                     att["data"] = content.encode("utf-8", errors="replace")
             elif isinstance(content, bytes):
                 att["data"] = content
-        # Try download URL if no inline content
+        # Try download URL
         if not att["data"] and a.get("url"):
             try:
                 import httpx
-                r = httpx.get(a["url"], timeout=10)
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(a["url"])
                 if r.status_code == 200:
                     att["data"] = r.content
             except Exception as e:
                 log.warning("AgentMail attachment download failed: %s", e)
+        # Download via AgentMail SDK using attachment_id
+        if not att["data"] and a.get("attachment_id") and inbox_id and message_id:
+            am_client = _get_agentmail()
+            if am_client:
+                try:
+                    file_data = await am_client.inboxes.messages.get_attachment(
+                        inbox_id=inbox_id,
+                        message_id=message_id,
+                        attachment_id=a["attachment_id"],
+                    )
+                    log.info("AgentMail SDK get_attachment returned: type=%s",
+                             type(file_data).__name__)
+                    if file_data:
+                        if isinstance(file_data, bytes):
+                            att["data"] = file_data
+                        elif isinstance(file_data, str):
+                            att["data"] = file_data.encode("utf-8")
+                        elif hasattr(file_data, 'download_url') and file_data.download_url:
+                            # AttachmentResponse object — follow CDN URL
+                            import httpx
+                            cdn_url = file_data.download_url
+                            log.info("AgentMail: following CDN URL for %s", att["filename"] or a["attachment_id"])
+                            async with httpx.AsyncClient(timeout=15, follow_redirects=True) as cdn_client:
+                                cdn_r = await cdn_client.get(cdn_url)
+                            if cdn_r.status_code == 200:
+                                att["data"] = cdn_r.content
+                            else:
+                                log.warning("CDN download %d: %s", cdn_r.status_code, cdn_r.text[:200])
+                        elif hasattr(file_data, 'content') and file_data.content:
+                            content = file_data.content
+                            att["data"] = content if isinstance(content, bytes) else content.encode("utf-8")
+                        elif hasattr(file_data, 'read'):
+                            att["data"] = file_data.read()
+                    # Update filename/content_type from SDK response if missing
+                    if hasattr(file_data, 'filename') and file_data.filename and not att["filename"]:
+                        att["filename"] = file_data.filename
+                    if hasattr(file_data, 'content_type') and file_data.content_type and not att["content_type"]:
+                        att["content_type"] = file_data.content_type
+                    if att["data"]:
+                        log.info("AgentMail SDK: downloaded %s (%d bytes, starts: %s)",
+                                 att["filename"] or a["attachment_id"], len(att["data"]),
+                                 att["data"][:50])
+                except Exception as e:
+                    log.warning("AgentMail SDK get_attachment failed for %s: %s", a["attachment_id"], e, exc_info=True)
+            elif not am_client:
+                log.warning("AgentMail: SDK client not available — cannot download attachments")
         attachments.append(att)
-    # Log raw attachment keys for debugging
     if data.get("attachments"):
-        log.info("AgentMail webhook: attachment keys=%s", [list(a.keys()) for a in data["attachments"]])
+        log.info("AgentMail webhook: %d attachments, data present: %s",
+                 len(attachments), [bool(a["data"]) for a in attachments])
 
     email_data = {
         "subject": data.get("subject", "(no subject)"),
@@ -1231,11 +1597,11 @@ async def process_agentmail_webhook(body: str, headers: dict) -> None:
 
     action_taken = ""
     if matched_rule:
-        # Execute action
+        # Execute action (mb=None — AgentMail webhook isn't tied to a per-mailbox backend)
         action_fn = _ACTIONS.get(matched_rule["action"])
         if action_fn:
             try:
-                await action_fn(email_data, matched_rule, "")
+                await action_fn(email_data, matched_rule, "", None)
             except Exception as e:
                 log.error("Action %s failed for rule %d: %s",
                           matched_rule["action"], matched_rule["id"], e)
@@ -1281,6 +1647,63 @@ async def process_agentmail_webhook(body: str, headers: dict) -> None:
 # Register job handlers
 register_handler("mailwatch_poll", _handle_poll_job)
 register_handler("mailwatch_watchdog", _handle_watchdog_job)
+
+
+# ---------------------------------------------------------------------------
+# Gmail OAuth provider registration
+# ---------------------------------------------------------------------------
+
+async def _on_gmail_connected(tokens: dict, metadata: dict):
+    """OAuth success callback — persist tokens to the matching mailbox entry."""
+    from cupbots.config import update_config_key
+
+    email_addr = (metadata.get("email") or "").strip().lower()
+    chat_id = metadata.get("chat_id", "")
+    if not email_addr:
+        log.error("Gmail OAuth callback missing email in metadata")
+        return
+
+    settings = _get_plugin_settings()
+    mailboxes_list = list(settings.get("mailboxes", []) or [])
+    idx = next(
+        (i for i, mb in enumerate(mailboxes_list)
+         if (mb.get("address") or "").strip().lower() == email_addr),
+        None,
+    )
+    if idx is None:
+        # User triggered OAuth without pre-creating; append the entry
+        mailboxes_list.append({"address": email_addr, "backend": "gmail"})
+        idx = len(mailboxes_list) - 1
+
+    expires_in = int(tokens.get("expires_in", 3600))
+    token_data = {
+        "access_token": tokens.get("access_token", ""),
+        "refresh_token": tokens.get("refresh_token", ""),
+        "expiry": int(time.time()) + expires_in - 60,
+        "token_type": tokens.get("token_type", "Bearer"),
+        "scope": tokens.get("scope", ""),
+    }
+    mailboxes_list[idx]["backend"] = "gmail"
+    mailboxes_list[idx]["gmail_tokens"] = token_data
+    update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
+
+    if chat_id:
+        ctx = WhatsAppReplyContext(chat_id, WA_API_URL)
+        await ctx.reply_text(
+            f"Gmail connected for *{email_addr}*.\n\n"
+            f"Run `/mailwatch start` to begin polling."
+        )
+    log.info("Gmail OAuth completed for %s", email_addr)
+
+
+from cupbots.helpers.oauth import register_provider, start_flow  # noqa: E402
+
+register_provider("google_gmail", {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "default_scopes": _gmail.GMAIL_SCOPES,
+    "on_success": _on_gmail_connected,
+})
 
 
 # ---------------------------------------------------------------------------
@@ -1389,8 +1812,10 @@ async def handle_command(msg, reply) -> bool:
             status = "active" if mb["active"] else "stopped"
             last_poll = mb["last_poll"] or "never"
             error = f" | Error: {mb['last_error']}" if mb["last_error"] else ""
+            backend = mb.get("backend", "imap")
+            detail = "gmail" if backend == "gmail" else f"imap @ {mb['imap_host']}"
             lines.append(
-                f"#{mb['id']} {mb['email']} ({mb['imap_host']})\n"
+                f"#{mb['id']} {mb['email']} ({detail})\n"
                 f"  Status: {status} | Last poll: {last_poll}{error}"
             )
         header = f"*Mailwatch* — {len(mailboxes)} account(s), {rule_count} rules, {processed} processed\n"
@@ -1465,7 +1890,8 @@ async def handle_command(msg, reply) -> bool:
         if len(args) < 2:
             await reply.reply_text(
                 "Account management:\n"
-                "  /mailwatch account add <email> <app_password> [imap_host]\n"
+                "  /mailwatch account add <email> <app_password> [imap_host]  — IMAP\n"
+                "  /mailwatch account connect <email>  — Gmail OAuth\n"
                 "  /mailwatch account remove <email>\n"
                 "  /mailwatch account list"
             )
@@ -1499,11 +1925,47 @@ async def handle_command(msg, reply) -> bool:
             mailboxes_list = list(settings.get("mailboxes", []) or [])
             mailboxes_list.append({
                 "address": acct_email,
+                "backend": "imap",
                 "app_password": acct_password,
                 "imap_host": acct_host,
             })
             update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
             await reply.reply_text(f"Account added: {acct_email} ({acct_host})\n{result}\n\nUse /mailwatch start to begin polling all accounts.")
+            return True
+
+        if acct_sub == "connect" and len(args) >= 3:
+            acct_email = args[2].strip().lower()
+            if "@" not in acct_email:
+                await reply.reply_text("Usage: /mailwatch account connect <email>")
+                return True
+
+            client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
+            client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
+            if not client_id or not client_secret:
+                await reply.reply_text(
+                    "Google OAuth not configured. Set `google_client_id` and "
+                    "`google_client_secret` under `plugin_settings.mailwatch` in config.yaml."
+                )
+                return True
+
+            # Pre-create the mailbox so it shows up in account list before tokens arrive
+            from cupbots.config import update_config_key
+            settings = _get_plugin_settings()
+            mailboxes_list = list(settings.get("mailboxes", []) or [])
+            if not any((mb.get("address") or "").strip().lower() == acct_email
+                       for mb in mailboxes_list):
+                mailboxes_list.append({"address": acct_email, "backend": "gmail"})
+                update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
+
+            await start_flow(
+                provider="google_gmail",
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=None,
+                metadata={"email": acct_email, "chat_id": msg.chat_id},
+                reply=reply,
+                extra_params={"access_type": "offline", "prompt": "consent"},
+            )
             return True
 
         if acct_sub == "remove" and len(args) >= 3:
@@ -1522,16 +1984,22 @@ async def handle_command(msg, reply) -> bool:
         if acct_sub == "list":
             mailboxes = _get_mailboxes(company_id)
             if not mailboxes:
-                await reply.reply_text("No accounts configured.\nAdd one: /mailwatch account add <email> <app_password>")
+                await reply.reply_text(
+                    "No accounts configured.\n"
+                    "Add IMAP: /mailwatch account add <email> <app_password>\n"
+                    "Add Gmail: /mailwatch account connect <email>"
+                )
                 return True
             lines = ["*Email Accounts:*\n"]
             for mb in mailboxes:
                 status = "active" if mb["active"] else "stopped"
-                lines.append(f"#{mb['id']} {mb['email']} ({mb['imap_host']}) — {status}")
+                backend = mb.get("backend", "imap")
+                detail = f"gmail" if backend == "gmail" else f"imap @ {mb['imap_host']}"
+                lines.append(f"#{mb['id']} {mb['email']} ({detail}) — {status}")
             await reply.reply_text("\n".join(lines))
             return True
 
-        await reply.reply_text("Usage: /mailwatch account add|remove|list")
+        await reply.reply_text("Usage: /mailwatch account add|connect|remove|list")
         return True
 
     if sub == "start":
@@ -1548,10 +2016,19 @@ async def handle_command(msg, reply) -> bool:
         await reply.send_typing()
         results = []
         for mb in mailboxes:
-            result = _test_connection(mb)
-            if "failed" in result.lower():
-                results.append(f"{mb['email']}: {result}")
-                continue
+            backend = mb.get("backend", "imap")
+            if backend == "gmail":
+                if not (mb.get("gmail_tokens") or {}).get("refresh_token"):
+                    results.append(
+                        f"{mb['email']}: gmail not connected — run /mailwatch account connect {mb['email']}"
+                    )
+                    continue
+                result = f"Connected to {mb['email']} (gmail api)"
+            else:
+                result = _test_connection(mb)
+                if "failed" in result.lower():
+                    results.append(f"{mb['email']}: {result}")
+                    continue
 
             _update_mailbox_state(mb["email"], active=1, last_error="")
 
@@ -1600,7 +2077,12 @@ async def handle_command(msg, reply) -> bool:
 
         await reply.send_typing()
         try:
-            mb = _get_mailbox(company_id)
+            # Use the first IMAP mailbox — gmail backend uses a different fetch path
+            mb = next((m for m in _get_mailboxes(company_id)
+                       if m.get("backend", "imap") == "imap"), None)
+            if not mb:
+                await reply.reply_text("No IMAP mailbox configured for /mailwatch test.")
+                return True
             conn = _connect_imap(mb)
             conn.select("INBOX", readonly=True)
             _, data = conn.search(None, "ALL")

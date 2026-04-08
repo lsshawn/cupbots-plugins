@@ -53,7 +53,10 @@ def _format_event(ev: dict) -> str:
     if ev.get("all_day"):
         time_str = "🏖️ All day"
     else:
-        time_str = f"{start.strftime('%H:%M')}–{end.strftime('%H:%M')}"
+        start_local = start.astimezone(TZ) if start.tzinfo else start.replace(tzinfo=TZ)
+        end_local = end.astimezone(TZ) if end.tzinfo else end.replace(tzinfo=TZ)
+        tz_label = str(TZ).split("/")[-1]
+        time_str = f"{start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')} ({tz_label})"
 
     summary = ev["summary"] or "(no title)"
     location = f" 📍 {ev['location']}" if ev.get("location") else ""
@@ -1378,7 +1381,11 @@ def _format_event_plain(ev: dict) -> str:
     if ev.get("all_day"):
         time_str = "All day"
     else:
-        time_str = f"{start.strftime('%H:%M')}-{end.strftime('%H:%M')}"
+        # Convert to display timezone and show timezone label
+        start_local = start.astimezone(TZ) if start.tzinfo else start.replace(tzinfo=TZ)
+        end_local = end.astimezone(TZ) if end.tzinfo else end.replace(tzinfo=TZ)
+        tz_label = str(TZ).split("/")[-1]
+        time_str = f"{start_local.strftime('%H:%M')}-{end_local.strftime('%H:%M')} ({tz_label})"
     summary = ev["summary"] or "(no title)"
     location = f" @ {ev['location']}" if ev.get("location") else ""
     return f"  {time_str}  {summary}{location}"
@@ -1387,7 +1394,21 @@ def _format_event_plain(ev: dict) -> str:
 async def _cal_today(now, reply):
     try:
         cal = _get_client()
-        events = [ev for ev in cal.get_events_today() if ev["end"] > now]
+        all_today = cal.get_events_today()
+        log.info("/cal today: now=%s, found %d events from CalDAV", now.isoformat(), len(all_today))
+        for ev in all_today:
+            log.info("/cal today: event '%s' end=%s (tzinfo=%s)", ev["summary"][:30], ev["end"].isoformat(), ev["end"].tzinfo)
+        # Ensure timezone-aware comparison — convert event end to same tz as now
+        events = []
+        for ev in all_today:
+            end = ev["end"]
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=TZ)
+            end_local = end.astimezone(TZ)
+            if end_local > now:
+                events.append(ev)
+            else:
+                log.info("/cal today: filtered out '%s' — end %s <= now %s", ev["summary"][:30], end_local.isoformat(), now.isoformat())
     except Exception as e:
         await reply.reply_error(f"CalDAV error: {e}")
         return
