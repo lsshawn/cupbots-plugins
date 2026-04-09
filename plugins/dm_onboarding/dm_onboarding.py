@@ -31,14 +31,20 @@ _MSG_DELAY = 1.5
 
 
 def create_tables(conn):
+    # Tenant-scoped on (company_id, sender_id). A given phone may legitimately
+    # be a customer of two different companies; each company tracks their own
+    # onboarding state independently.
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS dm_contacts (
-            sender_id TEXT PRIMARY KEY,
+            company_id TEXT NOT NULL DEFAULT '',
+            sender_id TEXT NOT NULL,
             sender_name TEXT NOT NULL DEFAULT '',
             first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
             onboarded_at TEXT,
-            intent TEXT NOT NULL DEFAULT ''
+            intent TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (company_id, sender_id)
         );
+        CREATE INDEX IF NOT EXISTS idx_dm_contacts_company ON dm_contacts (company_id);
     """)
 
 
@@ -84,16 +90,17 @@ async def _run_onboarding(msg, reply):
     intent = _detect_intent(msg.text)
     name = msg.sender_name.split()[0] if msg.sender_name else "there"
     links = _get_payment_links()
+    company_id = msg.company_id or ""
 
     # Save contact
     with _db() as conn:
         conn.execute(
-            """INSERT INTO dm_contacts (sender_id, sender_name, intent)
-               VALUES (?, ?, ?)
-               ON CONFLICT(sender_id) DO UPDATE SET
+            """INSERT INTO dm_contacts (company_id, sender_id, sender_name, intent)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(company_id, sender_id) DO UPDATE SET
                  sender_name = excluded.sender_name,
                  intent = excluded.intent""",
-            (msg.sender_id, msg.sender_name or "", intent),
+            (company_id, msg.sender_id, msg.sender_name or "", intent),
         )
 
     # Message 1 — warm welcome
@@ -158,18 +165,21 @@ async def _run_onboarding(msg, reply):
     # Mark onboarded
     with _db() as conn:
         conn.execute(
-            "UPDATE dm_contacts SET onboarded_at = datetime('now') WHERE sender_id = ?",
-            (msg.sender_id,),
+            "UPDATE dm_contacts SET onboarded_at = datetime('now') "
+            "WHERE company_id = ? AND sender_id = ?",
+            (company_id, msg.sender_id),
         )
 
-    log.info("Onboarded %s (%s) intent=%s", msg.sender_id, msg.sender_name, intent)
+    log.info("Onboarded %s (%s) intent=%s company=%s",
+             msg.sender_id, msg.sender_name, intent, company_id or "-")
 
 
-def _is_first_contact(sender_id: str) -> bool:
-    """Check if this sender has been seen before."""
+def _is_first_contact(company_id: str, sender_id: str) -> bool:
+    """Check if this sender has been seen before for this company."""
     with _db() as conn:
         row = conn.execute(
-            "SELECT 1 FROM dm_contacts WHERE sender_id = ?", (sender_id,)
+            "SELECT 1 FROM dm_contacts WHERE company_id = ? AND sender_id = ?",
+            (company_id or "", sender_id),
         ).fetchone()
         return row is None
 
@@ -183,7 +193,7 @@ async def handle_message(msg, reply) -> str | bool:
     if msg.is_group or msg.command:
         return False
 
-    if not _is_first_contact(msg.sender_id):
+    if not _is_first_contact(msg.company_id or "", msg.sender_id):
         return False
 
     # First time — run onboarding and block AI from also responding
@@ -205,18 +215,29 @@ async def handle_command(msg, reply) -> bool:
         return False
 
     args = msg.args
+    company_id = msg.company_id or ""
 
     if not args or args[0] == "stats":
+        # Stats are scoped to the company the command was issued from. An
+        # admin in company A's chat sees only company A's onboarding stats.
         with _db() as conn:
-            total = conn.execute("SELECT COUNT(*) FROM dm_contacts").fetchone()[0]
+            total = conn.execute(
+                "SELECT COUNT(*) FROM dm_contacts WHERE company_id = ?",
+                (company_id,),
+            ).fetchone()[0]
             onboarded = conn.execute(
-                "SELECT COUNT(*) FROM dm_contacts WHERE onboarded_at IS NOT NULL"
+                "SELECT COUNT(*) FROM dm_contacts "
+                "WHERE company_id = ? AND onboarded_at IS NOT NULL",
+                (company_id,),
             ).fetchone()[0]
             intents = conn.execute(
-                "SELECT intent, COUNT(*) FROM dm_contacts GROUP BY intent ORDER BY COUNT(*) DESC"
+                "SELECT intent, COUNT(*) FROM dm_contacts "
+                "WHERE company_id = ? GROUP BY intent ORDER BY COUNT(*) DESC",
+                (company_id,),
             ).fetchall()
+        scope = f" ({company_id})" if company_id else ""
         lines = [
-            f"DM Onboarding Stats\n",
+            f"DM Onboarding Stats{scope}\n",
             f"Total contacts: {total}",
             f"Onboarded: {onboarded}",
             f"\nBy intent:",
@@ -230,8 +251,16 @@ async def handle_command(msg, reply) -> bool:
         phone = args[1].lstrip("+").replace(" ", "").replace("-", "")
         jid = f"{phone}@s.whatsapp.net" if "@" not in phone else phone
         with _db() as conn:
-            conn.execute("DELETE FROM dm_contacts WHERE sender_id = ?", (jid,))
-        await reply.reply_text(f"Reset onboarding for {jid}")
+            cur = conn.execute(
+                "DELETE FROM dm_contacts WHERE company_id = ? AND sender_id = ?",
+                (company_id, jid),
+            )
+        if cur.rowcount:
+            await reply.reply_text(f"Reset onboarding for {jid}")
+        else:
+            await reply.reply_text(
+                f"No onboarding record found for {jid} in company '{company_id or '-'}'."
+            )
         return True
 
     elif args[0] == "test":

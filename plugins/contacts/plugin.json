@@ -10,6 +10,10 @@
     "/addcontact",
     "/contacts"
   ],
+  "write_commands": [
+    "/remember",
+    "/addcontact"
+  ],
   "intent": "Look up contact info, remember details about people, manage CRM entries, log interactions",
   "not_intent": "Sending messages to contacts",
   "config": [],

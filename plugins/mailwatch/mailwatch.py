@@ -10,9 +10,8 @@ Commands:
   /mailwatch start            — Test connection and begin polling
   /mailwatch stop             — Stop polling
   /mailwatch test <rule_id>   — Test a rule against recent emails
-  /mailwatch account add <email> <app_password> [host]  — Add an IMAP account
-  /mailwatch account connect <email>  — Connect a Gmail account via OAuth
-  /mailwatch account remove <email>  — Remove an account
+  /mailwatch account add <email> <app_password> [host]  — Add an email account (saves to config.yaml)
+  /mailwatch account remove <email>  — Remove an account (from config.yaml)
   /mailwatch account list     — List all accounts
   /mailwatch send <to> <subject> -- <body>  — Send email via AgentMail
   /mailwatch sent [N]         — Show N most recent sent emails (default 10)
@@ -23,26 +22,22 @@ Rule format: /mailwatch add <type> [field] <pattern> -> <action>
   Fields: subject, sender, body, any (default: any)
   Actions: notify, calendar, crm_update, draft_reply
 
-Backends: Gmail OAuth (account connect), IMAP (account add), AgentMail webhook+outbound
-
 Examples:
   /mailwatch add keyword subject "invoice" -> notify
   /mailwatch add regex sender ".*@acme\\.com" -> notify
   /mailwatch add attachment .ics -> calendar
   /mailwatch add ai "is this a client project update?" -> crm_update
   /mailwatch add keyword any "urgent" -> notify
+  /mailwatch account add user@gmail.com abcd-efgh-ijkl-mnop
   /mailwatch account add user@company.com p4ssw0rd imap.company.com
-  /mailwatch account connect me@gmail.com
   /mailwatch send user@example.com "Meeting follow-up" -- Hi, just following up...
 """
 
 import email as email_lib
 import email.utils
 import imaplib
-import importlib.util as _ilu
 import json
 import os
-import pathlib as _pl
 import re
 import time
 from datetime import datetime, timedelta
@@ -54,13 +49,6 @@ from cupbots.helpers.jobs import register_handler, enqueue
 from cupbots.helpers.logger import get_logger
 
 log = get_logger("mailwatch")
-
-# Load sibling _gmail.py helper without depending on the plugin loader's package semantics
-_gmail_spec = _ilu.spec_from_file_location(
-    "mailwatch._gmail", _pl.Path(__file__).parent / "_gmail.py",
-)
-_gmail = _ilu.module_from_spec(_gmail_spec)
-_gmail_spec.loader.exec_module(_gmail)
 
 PLUGIN_NAME = "mailwatch"
 WA_API_URL = os.environ.get("WA_API_URL", "http://127.0.0.1:3100")
@@ -148,11 +136,9 @@ def _get_mailboxes(company_id: str = "") -> list[dict]:
         result.append({
             "id": i + 1,
             "email": address,
-            "backend": mb.get("backend", "imap"),
             "app_password": mb.get("app_password", ""),
             "imap_host": mb.get("imap_host", "imap.gmail.com"),
             "imap_port": mb.get("imap_port", 993),
-            "gmail_tokens": mb.get("gmail_tokens", {}) or {},
             "notify_chat": mb.get("notify_chat", ""),
             "poll_interval": mb.get("poll_interval", 300),
             "active": state.get("active", 1),
@@ -196,21 +182,6 @@ def _update_mailbox_state(address: str, **kwargs):
                 (val, address),
             )
     _db().commit()
-
-
-def _persist_gmail_tokens(email_addr: str, refreshed: dict) -> None:
-    """Merge refreshed gmail tokens into the mailbox's config.yaml entry."""
-    from cupbots.config import update_config_key
-    settings = _get_plugin_settings()
-    mailboxes_list = list(settings.get("mailboxes", []) or [])
-    for i, mb in enumerate(mailboxes_list):
-        if mb.get("address") == email_addr:
-            existing = dict(mb.get("gmail_tokens") or {})
-            existing.update(refreshed)
-            mailboxes_list[i]["gmail_tokens"] = existing
-            update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
-            return
-    log.warning("_persist_gmail_tokens: mailbox %s not found in config", email_addr)
 
 
 def _get_notify_chat(mb: dict | None = None) -> str:
@@ -429,54 +400,7 @@ async def handle_approval(data: dict, wa_api_url: str) -> bool:
     chat = _get_notify_chat()
     ctx = WhatsAppReplyContext(chat, wa_api_url) if chat else None
     approved = emoji_val in ("\U0001f44d", "\u2705", "\U0001f44c")  # 👍 ✅ 👌
-    backend = pending.get("backend", "agentmail")
 
-    # Gmail backend: send the previously created Gmail draft via Gmail API
-    if backend == "gmail":
-        if approved:
-            try:
-                mailboxes = _get_mailboxes()
-                mb = next(
-                    (m for m in mailboxes if m["email"] == pending["mailbox_email"]),
-                    None,
-                )
-                if not mb:
-                    raise RuntimeError(f"Mailbox {pending['mailbox_email']} not found")
-                tokens = dict(mb.get("gmail_tokens") or {})
-                client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
-                client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
-                access_token, refreshed = await _gmail.ensure_access_token(
-                    tokens, client_id, client_secret,
-                )
-                if refreshed:
-                    _persist_gmail_tokens(mb["email"], refreshed)
-                await _gmail.send_draft(access_token, pending["gmail_draft_id"])
-                try:
-                    _db().execute(
-                        "INSERT INTO sent_emails "
-                        "(to_addr, subject, category, approved_by) "
-                        "VALUES (?, ?, 'gmail_draft', ?)",
-                        (pending["to"], pending["subject"][:200], data.get("sender", "")),
-                    )
-                    _db().commit()
-                except Exception as e:
-                    log.warning("Failed to record sent gmail draft: %s", e)
-                if ctx:
-                    await ctx.reply_text(f"Gmail reply sent to {pending['to']}")
-            except Exception as e:
-                log.error("Gmail send_draft failed: %s", e)
-                if ctx:
-                    await ctx.reply_text(
-                        f"Failed to send Gmail draft: {e}\nDraft remains in Gmail."
-                    )
-        else:
-            if ctx:
-                await ctx.reply_text(
-                    f"Gmail draft kept for {pending['to']} — edit/send manually in gmail.com."
-                )
-        return True
-
-    # AgentMail backend (default)
     if approved:
         result = await _agentmail_send(
             to=pending["to"],
@@ -727,56 +651,6 @@ async def _action_draft_reply(email_data: dict, rule: dict, company_id: str, mb:
     reply_subject = f"Re: {email_data['subject']}"
     sender_addr = _extract_email_addr(email_data["sender"])
     in_reply_to = email_data.get("message_id", "")
-
-    # Gmail backend: create real draft in user's Gmail account, ping WhatsApp for approval
-    if mb and mb.get("backend") == "gmail":
-        tokens = dict(mb.get("gmail_tokens") or {})
-        client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
-        client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
-        try:
-            access_token, refreshed = await _gmail.ensure_access_token(
-                tokens, client_id, client_secret,
-            )
-            if refreshed:
-                _persist_gmail_tokens(mb["email"], refreshed)
-
-            rfc = _gmail.build_reply_rfc822(
-                from_addr=mb["email"],
-                to_addr=sender_addr,
-                subject=reply_subject,
-                body=draft,
-                in_reply_to=in_reply_to,
-                references=in_reply_to,
-            )
-            draft_result = await _gmail.create_draft(
-                access_token, rfc,
-                thread_id=email_data.get("_gmail_thread_id") or None,
-            )
-            gmail_draft_id = draft_result.get("id", "")
-        except Exception as e:
-            log.error("Gmail draft creation failed: %s", e)
-            ctx = WhatsAppReplyContext(chat, WA_API_URL)
-            await ctx.reply_text(f"Gmail draft creation failed: {e}")
-            return
-
-        ctx = WhatsAppReplyContext(chat, WA_API_URL)
-        approval_text = (
-            f"[Gmail Draft] {mb['email']}\n"
-            f"To: {sender_addr}\n"
-            f"{reply_subject}\n---\n{draft}\n---\n"
-            f"Draft saved in Gmail. React \U0001f44d to send, \U0001f44e to keep as draft."
-        )
-        msg_id = await ctx.send_and_get_id(approval_text)
-        if msg_id:
-            _pending_email_approvals[msg_id] = {
-                "backend": "gmail",
-                "mailbox_email": mb["email"],
-                "gmail_draft_id": gmail_draft_id,
-                "to": sender_addr,
-                "subject": reply_subject,
-                "timestamp": time.time(),
-            }
-        return
 
     # If AgentMail is configured, use auto-send or approval flow
     if _get_agentmail():
@@ -1160,7 +1034,7 @@ def _test_connection(mb: dict) -> str:
 # ---------------------------------------------------------------------------
 
 async def _handle_poll_job(payload: dict, bot=None):
-    """Main polling job. Dispatches to backend-specific poll function."""
+    """Main polling job. Fetch unseen emails, match rules, execute actions."""
     company_id = payload.get("company_id", "")
     mailbox_id = payload.get("mailbox_id", 1)
 
@@ -1169,15 +1043,11 @@ async def _handle_poll_job(payload: dict, bot=None):
         log.info("Mailbox %s inactive for %s, not rescheduling", mailbox_id, company_id)
         return
 
-    backend = mb.get("backend", "imap")
     try:
-        if backend == "gmail":
-            await _poll_gmail(mb, mailbox_id, company_id)
-        else:
-            await _poll_imap(mb, mailbox_id, company_id)
+        await _poll_imap(mb, mailbox_id, company_id)
         _update_mailbox_state(mb["email"], last_poll=datetime.now().isoformat(), last_error="")
     except Exception as e:
-        log.error("Poll failed for %s (%s): %s", mb["email"], backend, e)
+        log.error("Poll failed for %s: %s", mb["email"], e)
         _update_mailbox_state(mb["email"], last_error=str(e)[:500])
         raise  # Let jobs.py handle retry/backoff
 
@@ -1263,101 +1133,6 @@ async def _poll_imap(mb: dict, mailbox_id: int, company_id: str):
             conn.logout()
         except Exception:
             pass
-
-
-async def _poll_gmail(mb: dict, mailbox_id: int, company_id: str):
-    """Poll a Gmail mailbox via the Gmail API and process via the rule pipeline."""
-    tokens = dict(mb.get("gmail_tokens") or {})
-    if not tokens.get("refresh_token"):
-        raise RuntimeError(
-            f"No gmail_tokens for {mb['email']} — run /mailwatch account connect"
-        )
-
-    client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
-    client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
-
-    access_token, refreshed = await _gmail.ensure_access_token(
-        tokens, client_id, client_secret,
-    )
-    if refreshed:
-        _persist_gmail_tokens(mb["email"], refreshed)
-
-    msg_ids = await _gmail.list_unread_ids(access_token, max_results=25)
-    if not msg_ids:
-        return
-
-    rules = [r for r in _get_rules() if r["active"]]
-
-    for gmail_id in msg_ids:
-        uid_str = f"gmail:{gmail_id}"
-
-        existing = _db().execute(
-            "SELECT 1 FROM processed_emails WHERE mailbox_id = ? AND uid = ?",
-            (mailbox_id, uid_str),
-        ).fetchone()
-        if existing:
-            continue
-
-        try:
-            fetched = await _gmail.fetch_message(access_token, gmail_id)
-        except Exception as e:
-            log.error("Gmail fetch failed for %s: %s", gmail_id, e)
-            continue
-
-        email_data = _parse_email(fetched["raw"])
-        email_data["_gmail_thread_id"] = fetched.get("thread_id", "")
-        email_data["_gmail_id"] = gmail_id
-
-        matched_rule = None
-        for rule in rules:
-            try:
-                if await _match_rule(rule, email_data):
-                    matched_rule = dict(rule)
-                    break
-            except Exception as e:
-                log.error("Rule %d match error: %s", rule["id"], e)
-
-        if matched_rule:
-            action_fn = _ACTIONS.get(matched_rule["action"])
-            if action_fn:
-                try:
-                    await action_fn(email_data, matched_rule, company_id, mb)
-                except Exception as e:
-                    log.error("Action %s failed for rule %d: %s",
-                              matched_rule["action"], matched_rule["id"], e)
-
-            await _emit_email_received(company_id, email_data, matched_rule["action"])
-
-            _db().execute(
-                "INSERT OR IGNORE INTO processed_emails "
-                "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (company_id, mailbox_id, uid_str, email_data["message_id"],
-                 email_data["subject"][:200], email_data["sender"][:200],
-                 matched_rule["id"], matched_rule["action"]),
-            )
-            _update_rule_stats(matched_rule["rule_key"])
-            try:
-                await _gmail.mark_read(access_token, gmail_id)
-            except Exception as e:
-                log.warning("Gmail mark_read failed for %s: %s", gmail_id, e)
-        else:
-            if _ai_fallback_enabled():
-                await _ai_fallback(email_data, mb)
-                _db().execute(
-                    "INSERT OR IGNORE INTO processed_emails "
-                    "(company_id, mailbox_id, uid, message_id, subject, sender, rule_id, action_taken) "
-                    "VALUES ('', ?, ?, ?, ?, ?, NULL, 'ai_fallback')",
-                    (mailbox_id, uid_str, email_data["message_id"],
-                     email_data["subject"][:200], email_data["sender"][:200]),
-                )
-                _db().commit()
-                try:
-                    await _gmail.mark_read(access_token, gmail_id)
-                except Exception as e:
-                    log.warning("Gmail mark_read failed for %s: %s", gmail_id, e)
-            # else: stays unread so a newly added rule can catch it next poll
-    _db().commit()
 
 
 async def _emit_email_received(company_id: str, email_data: dict, rule_action: str):
@@ -1650,63 +1425,6 @@ register_handler("mailwatch_watchdog", _handle_watchdog_job)
 
 
 # ---------------------------------------------------------------------------
-# Gmail OAuth provider registration
-# ---------------------------------------------------------------------------
-
-async def _on_gmail_connected(tokens: dict, metadata: dict):
-    """OAuth success callback — persist tokens to the matching mailbox entry."""
-    from cupbots.config import update_config_key
-
-    email_addr = (metadata.get("email") or "").strip().lower()
-    chat_id = metadata.get("chat_id", "")
-    if not email_addr:
-        log.error("Gmail OAuth callback missing email in metadata")
-        return
-
-    settings = _get_plugin_settings()
-    mailboxes_list = list(settings.get("mailboxes", []) or [])
-    idx = next(
-        (i for i, mb in enumerate(mailboxes_list)
-         if (mb.get("address") or "").strip().lower() == email_addr),
-        None,
-    )
-    if idx is None:
-        # User triggered OAuth without pre-creating; append the entry
-        mailboxes_list.append({"address": email_addr, "backend": "gmail"})
-        idx = len(mailboxes_list) - 1
-
-    expires_in = int(tokens.get("expires_in", 3600))
-    token_data = {
-        "access_token": tokens.get("access_token", ""),
-        "refresh_token": tokens.get("refresh_token", ""),
-        "expiry": int(time.time()) + expires_in - 60,
-        "token_type": tokens.get("token_type", "Bearer"),
-        "scope": tokens.get("scope", ""),
-    }
-    mailboxes_list[idx]["backend"] = "gmail"
-    mailboxes_list[idx]["gmail_tokens"] = token_data
-    update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
-
-    if chat_id:
-        ctx = WhatsAppReplyContext(chat_id, WA_API_URL)
-        await ctx.reply_text(
-            f"Gmail connected for *{email_addr}*.\n\n"
-            f"Run `/mailwatch start` to begin polling."
-        )
-    log.info("Gmail OAuth completed for %s", email_addr)
-
-
-from cupbots.helpers.oauth import register_provider, start_flow  # noqa: E402
-
-register_provider("google_gmail", {
-    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-    "token_url": "https://oauth2.googleapis.com/token",
-    "default_scopes": _gmail.GMAIL_SCOPES,
-    "on_success": _on_gmail_connected,
-})
-
-
-# ---------------------------------------------------------------------------
 # Rule parsing from chat
 # ---------------------------------------------------------------------------
 
@@ -1812,10 +1530,8 @@ async def handle_command(msg, reply) -> bool:
             status = "active" if mb["active"] else "stopped"
             last_poll = mb["last_poll"] or "never"
             error = f" | Error: {mb['last_error']}" if mb["last_error"] else ""
-            backend = mb.get("backend", "imap")
-            detail = "gmail" if backend == "gmail" else f"imap @ {mb['imap_host']}"
             lines.append(
-                f"#{mb['id']} {mb['email']} ({detail})\n"
+                f"#{mb['id']} {mb['email']} ({mb['imap_host']})\n"
                 f"  Status: {status} | Last poll: {last_poll}{error}"
             )
         header = f"*Mailwatch* — {len(mailboxes)} account(s), {rule_count} rules, {processed} processed\n"
@@ -1890,8 +1606,7 @@ async def handle_command(msg, reply) -> bool:
         if len(args) < 2:
             await reply.reply_text(
                 "Account management:\n"
-                "  /mailwatch account add <email> <app_password> [imap_host]  — IMAP\n"
-                "  /mailwatch account connect <email>  — Gmail OAuth\n"
+                "  /mailwatch account add <email> <app_password> [imap_host]\n"
                 "  /mailwatch account remove <email>\n"
                 "  /mailwatch account list"
             )
@@ -1925,47 +1640,11 @@ async def handle_command(msg, reply) -> bool:
             mailboxes_list = list(settings.get("mailboxes", []) or [])
             mailboxes_list.append({
                 "address": acct_email,
-                "backend": "imap",
                 "app_password": acct_password,
                 "imap_host": acct_host,
             })
             update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
             await reply.reply_text(f"Account added: {acct_email} ({acct_host})\n{result}\n\nUse /mailwatch start to begin polling all accounts.")
-            return True
-
-        if acct_sub == "connect" and len(args) >= 3:
-            acct_email = args[2].strip().lower()
-            if "@" not in acct_email:
-                await reply.reply_text("Usage: /mailwatch account connect <email>")
-                return True
-
-            client_id = resolve_plugin_setting(PLUGIN_NAME, "google_client_id")
-            client_secret = resolve_plugin_setting(PLUGIN_NAME, "google_client_secret")
-            if not client_id or not client_secret:
-                await reply.reply_text(
-                    "Google OAuth not configured. Set `google_client_id` and "
-                    "`google_client_secret` under `plugin_settings.mailwatch` in config.yaml."
-                )
-                return True
-
-            # Pre-create the mailbox so it shows up in account list before tokens arrive
-            from cupbots.config import update_config_key
-            settings = _get_plugin_settings()
-            mailboxes_list = list(settings.get("mailboxes", []) or [])
-            if not any((mb.get("address") or "").strip().lower() == acct_email
-                       for mb in mailboxes_list):
-                mailboxes_list.append({"address": acct_email, "backend": "gmail"})
-                update_config_key("plugin_settings.mailwatch.mailboxes", mailboxes_list)
-
-            await start_flow(
-                provider="google_gmail",
-                client_id=client_id,
-                client_secret=client_secret,
-                scopes=None,
-                metadata={"email": acct_email, "chat_id": msg.chat_id},
-                reply=reply,
-                extra_params={"access_type": "offline", "prompt": "consent"},
-            )
             return True
 
         if acct_sub == "remove" and len(args) >= 3:
@@ -1984,22 +1663,16 @@ async def handle_command(msg, reply) -> bool:
         if acct_sub == "list":
             mailboxes = _get_mailboxes(company_id)
             if not mailboxes:
-                await reply.reply_text(
-                    "No accounts configured.\n"
-                    "Add IMAP: /mailwatch account add <email> <app_password>\n"
-                    "Add Gmail: /mailwatch account connect <email>"
-                )
+                await reply.reply_text("No accounts configured.\nAdd one: /mailwatch account add <email> <app_password>")
                 return True
             lines = ["*Email Accounts:*\n"]
             for mb in mailboxes:
                 status = "active" if mb["active"] else "stopped"
-                backend = mb.get("backend", "imap")
-                detail = f"gmail" if backend == "gmail" else f"imap @ {mb['imap_host']}"
-                lines.append(f"#{mb['id']} {mb['email']} ({detail}) — {status}")
+                lines.append(f"#{mb['id']} {mb['email']} ({mb['imap_host']}) — {status}")
             await reply.reply_text("\n".join(lines))
             return True
 
-        await reply.reply_text("Usage: /mailwatch account add|connect|remove|list")
+        await reply.reply_text("Usage: /mailwatch account add|remove|list")
         return True
 
     if sub == "start":
@@ -2016,19 +1689,10 @@ async def handle_command(msg, reply) -> bool:
         await reply.send_typing()
         results = []
         for mb in mailboxes:
-            backend = mb.get("backend", "imap")
-            if backend == "gmail":
-                if not (mb.get("gmail_tokens") or {}).get("refresh_token"):
-                    results.append(
-                        f"{mb['email']}: gmail not connected — run /mailwatch account connect {mb['email']}"
-                    )
-                    continue
-                result = f"Connected to {mb['email']} (gmail api)"
-            else:
-                result = _test_connection(mb)
-                if "failed" in result.lower():
-                    results.append(f"{mb['email']}: {result}")
-                    continue
+            result = _test_connection(mb)
+            if "failed" in result.lower():
+                results.append(f"{mb['email']}: {result}")
+                continue
 
             _update_mailbox_state(mb["email"], active=1, last_error="")
 
@@ -2077,12 +1741,7 @@ async def handle_command(msg, reply) -> bool:
 
         await reply.send_typing()
         try:
-            # Use the first IMAP mailbox — gmail backend uses a different fetch path
-            mb = next((m for m in _get_mailboxes(company_id)
-                       if m.get("backend", "imap") == "imap"), None)
-            if not mb:
-                await reply.reply_text("No IMAP mailbox configured for /mailwatch test.")
-                return True
+            mb = _get_mailbox(company_id)
             conn = _connect_imap(mb)
             conn.select("INBOX", readonly=True)
             _, data = conn.search(None, "ALL")

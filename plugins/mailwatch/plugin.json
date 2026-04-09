@@ -1,17 +1,15 @@
 {
   "name": "mailwatch",
-  "description": "Watch email inboxes (Gmail OAuth, IMAP, or AgentMail) and process unread messages with rules — keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Gmail backend creates real drafts in your Gmail inbox; AgentMail backend sends via AgentMail with auto-send rules or WhatsApp approval.",
-  "version": "1.2.0",
+  "description": "Watch email inboxes (IMAP or AgentMail) and process unread messages with rules — keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Send replies via AgentMail with auto-send rules or WhatsApp approval. For Gmail integration, set up a forwarding rule to your AgentMail address — works for both Workspace and consumer Gmail with zero OAuth.",
+  "version": "1.1.1",
   "author": "CupBots",
   "commands": [
     "/mailwatch"
   ],
-  "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and draft/send replies via Gmail or AgentMail",
+  "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and send replies via AgentMail",
   "pip_dependencies": ["agentmail", "svix"],
   "config": [
     [["key", "mailwatch_notify_chat"], ["label", "WhatsApp Notification Chat"], ["type", "text"], ["required", true], ["help", "Default WhatsApp JID for notifications (per-mailbox notify_chat overrides this)"]],
-    [["key", "google_client_id"], ["label", "Google OAuth Client ID"], ["type", "text"], ["required", false], ["help", "OAuth 2.0 Client ID from Google Cloud Console — required for Gmail backend"]],
-    [["key", "google_client_secret"], ["label", "Google OAuth Client Secret"], ["type", "secret"], ["required", false], ["help", "OAuth 2.0 Client Secret from Google Cloud Console"]],
     [["key", "agentmail_api_key"], ["label", "AgentMail API Key"], ["type", "secret"], ["required", false], ["help", "API key from agentmail.to — enables outbound email sending"]],
     [["key", "agentmail_address"], ["label", "AgentMail Inbox Address"], ["type", "text"], ["required", false], ["help", "AgentMail inbox address used as sender and inbox_id, e.g. pa@ai.cupbots.com"]],
     [["key", "agentmail_display_name"], ["label", "AgentMail Display Name"], ["type", "text"], ["required", false], ["help", "Sender display name, e.g. ClientName Assistant"]],
@@ -26,6 +24,6 @@
     "icon": "mail",
     "tagline": "Turn your inbox into an automation engine",
     "category": "productivity",
-    "long_description": "Watch your email inbox and process unread messages automatically based on rules you define. Three backends per mailbox: Gmail OAuth (one-click connect, AI drafts land as real drafts in your Gmail folder), generic IMAP (any provider with an app password), or AgentMail (a dedicated agent inbox). Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies — with WhatsApp 👍/👎 deciding whether the bot sends the draft for you. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
+    "long_description": "Watch your email inbox and process unread messages automatically based on rules you define. Polls every 5 minutes for unread (UNSEEN) emails only — emails you've already read in your mail client are skipped. If an unread email doesn't match any rule, it stays unread so newly added rules can catch it on the next poll. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies with auto-send or WhatsApp approval via AgentMail. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
   }
 }

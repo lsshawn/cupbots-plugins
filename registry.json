@@ -12,6 +12,10 @@
         "/bookmarks",
         "/unbookmark"
       ],
+      "write_commands": [
+        "/bookmark",
+        "/unbookmark"
+      ],
       "intent": "Save, search, or manage bookmarked URLs and links",
       "config": [],
       "free": true,
@@ -29,13 +33,28 @@
     "calendar": {
       "name": "calendar",
       "description": "Calendar management via CalDAV or Google Calendar",
-      "version": "1.2.0",
+      "version": "1.8.0",
       "author": "CupBots",
       "commands": [
         "/cal",
         "/event"
       ],
-      "intent": "Create, view, edit, or delete calendar events, meetings, appointments, huddles. Recurring event schedules.",
+      "write_commands": [
+        "/event"
+      ],
+      "primitives": [
+        "/cal                                       \u2014 today's events",
+        "/cal week                                  \u2014 next 7 days",
+        "/cal <N>                                   \u2014 next N days (e.g. /cal 5)",
+        "/cal <date>                                \u2014 events on a date (e.g. /cal 8 apr)",
+        "/cal free [date]                           \u2014 free slots",
+        "/event create --title X --start 2026-04-09T14:00 --end 2026-04-09T15:00 [--location L] [--rrule R]",
+        "/event create --title X --start 2026-04-09T14:00 --duration 30m",
+        "/event delete --uid <uid>                  \u2014 delete by exact UID (get UID from /event search)",
+        "/event delete --query \"standup\"            \u2014 delete by keyword",
+        "/event search --query \"standup\" [--days 30] \u2014 list matching events with UIDs"
+      ],
+      "intent": "Create, view, edit, or delete calendar events, meetings, appointments, huddles. Recurring event schedules. Manage availability preferences (no weekends, work hours) and refuse overlapping events.",
       "not_intent": "Sending WhatsApp messages to someone at a scheduled time",
       "config": [
         [
@@ -247,7 +266,7 @@
         "icon": "calendar_month",
         "tagline": "Full calendar management from WhatsApp \u2014 CalDAV or Google Calendar",
         "category": "productivity",
-        "long_description": "View your agenda, find free slots, and create events using natural language \u2014 all from WhatsApp. Supports CalDAV (Radicale, Nextcloud) and Google Calendar. Recurring events, ICS imports, holiday syncing."
+        "long_description": "View your agenda, find free slots, and create events using natural language \u2014 all from WhatsApp. Refuses overlapping events and prompts you to confirm, cancel, or draft a polite reschedule reply. Set availability preferences (no weekends, work hours, blocked days) so the AI agent never offers a time you can't make. Supports CalDAV (Radicale, Nextcloud) and Google Calendar. Recurring events, ICS imports, holiday syncing."
       },
       "files": [
         "plugins/calendar.py"
@@ -288,6 +307,10 @@
         "/remember",
         "/addcontact",
         "/contacts"
+      ],
+      "write_commands": [
+        "/remember",
+        "/addcontact"
       ],
       "intent": "Look up contact info, remember details about people, manage CRM entries, log interactions",
       "not_intent": "Sending messages to contacts",
@@ -360,6 +383,9 @@
         "/idea",
         "/ideas"
       ],
+      "write_commands": [
+        "/idea"
+      ],
       "intent": "Capture startup ideas, project ideas, or brainstorms for later review",
       "config": [],
       "free": true,
@@ -383,6 +409,9 @@
         "/invoice",
         "/invoice list",
         "/invoice status"
+      ],
+      "write_commands": [
+        "/invoice"
       ],
       "intent": "Create Stripe invoices, find or create clients, send invoices with line items",
       "config": [],
@@ -461,6 +490,11 @@
         "/lp status",
         "/lp domain"
       ],
+      "write_commands": [
+        "/lp",
+        "/lp edit",
+        "/lp domain"
+      ],
       "intent": "Deploy and manage landing pages from WhatsApp",
       "free": false,
       "price": "$29",
@@ -524,13 +558,13 @@
     },
     "mailwatch": {
       "name": "mailwatch",
-      "description": "Watch email inboxes (Gmail OAuth, IMAP, or AgentMail) and process unread messages with rules \u2014 keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Gmail backend creates real drafts in your Gmail inbox; AgentMail backend sends via AgentMail with auto-send rules or WhatsApp approval.",
-      "version": "1.2.0",
+      "description": "Watch email inboxes (IMAP or AgentMail) and process unread messages with rules \u2014 keyword, regex, attachment, or AI matching with actions like notify, CRM update, calendar import, and draft replies. Send replies via AgentMail with auto-send rules or WhatsApp approval. For Gmail integration, set up a forwarding rule to your AgentMail address \u2014 works for both Workspace and consumer Gmail with zero OAuth.",
+      "version": "1.1.1",
       "author": "CupBots",
       "commands": [
         "/mailwatch"
       ],
-      "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and draft/send replies via Gmail or AgentMail",
+      "intent": "Monitor email inboxes, forward matching emails to WhatsApp, and send replies via AgentMail",
       "pip_dependencies": [
         "agentmail",
         "svix"
@@ -556,50 +590,6 @@
           [
             "help",
             "Default WhatsApp JID for notifications (per-mailbox notify_chat overrides this)"
-          ]
-        ],
-        [
-          [
-            "key",
-            "google_client_id"
-          ],
-          [
-            "label",
-            "Google OAuth Client ID"
-          ],
-          [
-            "type",
-            "text"
-          ],
-          [
-            "required",
-            false
-          ],
-          [
-            "help",
-            "OAuth 2.0 Client ID from Google Cloud Console \u2014 required for Gmail backend"
-          ]
-        ],
-        [
-          [
-            "key",
-            "google_client_secret"
-          ],
-          [
-            "label",
-            "Google OAuth Client Secret"
-          ],
-          [
-            "type",
-            "secret"
-          ],
-          [
-            "required",
-            false
-          ],
-          [
-            "help",
-            "OAuth 2.0 Client Secret from Google Cloud Console"
           ]
         ],
         [
@@ -721,10 +711,9 @@
         "icon": "mail",
         "tagline": "Turn your inbox into an automation engine",
         "category": "productivity",
-        "long_description": "Watch your email inbox and process unread messages automatically based on rules you define. Three backends per mailbox: Gmail OAuth (one-click connect, AI drafts land as real drafts in your Gmail folder), generic IMAP (any provider with an app password), or AgentMail (a dedicated agent inbox). Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies \u2014 with WhatsApp \ud83d\udc4d/\ud83d\udc4e deciding whether the bot sends the draft for you. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
+        "long_description": "Watch your email inbox and process unread messages automatically based on rules you define. Polls every 5 minutes for unread (UNSEEN) emails only \u2014 emails you've already read in your mail client are skipped. If an unread email doesn't match any rule, it stays unread so newly added rules can catch it on the next poll. Match emails by keyword, regex, attachment type, or AI classification. Actions include WhatsApp notifications, CRM updates, calendar imports, and AI-drafted replies with auto-send or WhatsApp approval via AgentMail. Set up rules like 'any email from @acme.com with an invoice attachment -> notify me' and let the bot handle the rest."
       },
       "files": [
-        "plugins/_gmail.py",
         "plugins/mailwatch.py"
       ]
     },
@@ -736,6 +725,9 @@
       "commands": [
         "/publish",
         "/published"
+      ],
+      "write_commands": [
+        "/publish"
       ],
       "intent": "Publish markdown notes to mdpubs.com",
       "config": [
@@ -786,6 +778,9 @@
       "commands": [
         "/note",
         "/notes"
+      ],
+      "write_commands": [
+        "/note"
       ],
       "intent": "Create or search personal notes, quick memos, zettelkasten entries",
       "not_intent": "Bookmarks, ideas, or knowledge base documents",
@@ -902,6 +897,9 @@
         "/remind",
         "/reminders"
       ],
+      "write_commands": [
+        "/remind"
+      ],
       "intent": "Set a personal reminder to do something at a specific time",
       "not_intent": "Creating calendar events or sending WhatsApp messages",
       "config": [],
@@ -955,17 +953,17 @@
       "config": [
         {
           "key": "google_client_id",
-          "label": "Google OAuth Client ID",
+          "label": "Google OAuth Client ID (legacy)",
           "type": "text",
           "required": false,
-          "help": "For GA4 backend. Create at console.cloud.google.com"
+          "help": "Legacy \u2014 OAuth initiation is now hub-brokered. This key is still read by the steady-state GA4/GSC token refresh path and will be removed in a future migration."
         },
         {
           "key": "google_client_secret",
-          "label": "Google OAuth Client Secret",
+          "label": "Google OAuth Client Secret (legacy)",
           "type": "secret",
           "required": false,
-          "help": "For GA4 backend"
+          "help": "Legacy \u2014 see google_client_id help."
         },
         {
           "key": "dataforseo_login",
@@ -992,7 +990,8 @@
       "pip_dependencies": [
         "google-analytics-data",
         "google-auth",
-        "google-auth-httplib2"
+        "google-auth-httplib2",
+        "uptime-kuma-api"
       ],
       "free": false,
       "price": "$49",
@@ -1005,6 +1004,11 @@
         "long_description": "Agentic SEO monitoring that replaces expensive agencies. Connects to Google Analytics 4 or Umami, tracks keyword rankings via DataForSEO, detects content decay, and generates data-driven blog drafts. Weekly intelligence reports delivered straight to WhatsApp \u2014 no dashboards needed."
       },
       "files": [
+        "plugins/_action_planner.py",
+        "plugins/_form_check.py",
+        "plugins/_gsc.py",
+        "plugins/_psi.py",
+        "plugins/_uptime_kuma.py",
         "plugins/seo.py"
       ]
     },
@@ -1113,6 +1117,10 @@
       "commands": [
         "/wa schedule",
         "/wa scheduled",
+        "/wa unschedule"
+      ],
+      "write_commands": [
+        "/wa schedule",
         "/wa unschedule"
       ],
       "intent": "Send a WhatsApp message to a specific person or group at a scheduled time",

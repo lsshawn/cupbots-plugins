@@ -2,6 +2,21 @@
 
 Watch email inboxes and process messages with rules. Supports multiple IMAP accounts and AgentMail for outbound sending + inbound webhook reception.
 
+## Quickest path: forward Gmail to AgentMail
+
+If you want the bot to act on your Gmail (Workspace or consumer), the **simplest path is to set up a forwarding rule** from gmail.com to your AgentMail address. The bot processes forwarded emails through the same rule pipeline as polled IMAP — no OAuth, no app password, no per-vendor integration.
+
+**Setup (1 minute):**
+
+1. In gmail.com → Settings → Filters and Blocked Addresses → Create a new filter
+2. Add a filter (or "Has the words: -from:nobody" to forward everything)
+3. Choose **Forward it to** → enter your AgentMail address (e.g. `pa@ai.cupbots.com`)
+4. Save
+
+That's it. Forwarded emails arrive at AgentMail, hit the webhook, and run through your mailwatch rules. The same pattern works for Outlook, Fastmail, ProtonMail, Yahoo, and any other provider with forwarding rules.
+
+For deeper integration where the bot needs to **mark emails as read in your real inbox** or **fetch them via IMAP polling** (without forwarding), use the IMAP backend below.
+
 ## How It Works
 
 ### Inbound (IMAP Polling)
@@ -75,11 +90,6 @@ plugin_settings:
         action: calendar
     ai_fallback: true                # AI triage for unmatched emails (~$0.01/email)
 
-    # Legacy single-mailbox keys (still work if mailboxes list is empty):
-    # mailwatch_email: client@gmail.com
-    # mailwatch_app_password: xxxx-xxxx-xxxx-xxxx
-    # mailwatch_imap_host: imap.gmail.com
-
     # AgentMail (optional — outbound sending + inbound webhook)
     agentmail_api_key: am_xxxxxxxxxx
     agentmail_address: pa@ai.cupbots.com  # inbox address (used as sender + inbox_id)
@@ -138,7 +148,6 @@ Format: `/mailwatch add <type> [field] <pattern> -> <action>`
 | `calendar` | Import .ics attachments to calendar |
 | `crm_update` | Update wiki/CRM entities |
 | `draft_reply` | AI-draft a reply (sends via AgentMail if configured) |
-| `custom` | Custom action handler |
 
 Examples:
 ```

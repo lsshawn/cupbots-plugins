@@ -8,6 +8,10 @@
     "/wa scheduled",
     "/wa unschedule"
   ],
+  "write_commands": [
+    "/wa schedule",
+    "/wa unschedule"
+  ],
   "intent": "Send a WhatsApp message to a specific person or group at a scheduled time",
   "not_intent": "Creating calendar events, meetings, or appointments",
   "config": [

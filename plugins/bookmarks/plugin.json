@@ -8,6 +8,10 @@
     "/bookmarks",
     "/unbookmark"
   ],
+  "write_commands": [
+    "/bookmark",
+    "/unbookmark"
+  ],
   "intent": "Save, search, or manage bookmarked URLs and links",
   "config": [],
   "free": true,

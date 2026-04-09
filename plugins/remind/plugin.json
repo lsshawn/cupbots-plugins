@@ -7,6 +7,9 @@
     "/remind",
     "/reminders"
   ],
+  "write_commands": [
+    "/remind"
+  ],
   "intent": "Set a personal reminder to do something at a specific time",
   "not_intent": "Creating calendar events or sending WhatsApp messages",
   "config": [],

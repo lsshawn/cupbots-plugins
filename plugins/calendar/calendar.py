@@ -6,15 +6,29 @@ Commands:
   /cal <N>                         — Next N days (e.g. /cal 5)
   /cal week                        — Next 7 days
   /cal next                        — Next upcoming event
-  /cal <date>                      — Events on a date (e.g. thursday, 25 jun)
+  /cal <date>                      — Events on a date (e.g. thursday, 6 apr)
   /cal free [date]                 — Free slots (today or specific date)
+  /cal connect                     — Connect a Google Calendar via OAuth (one click,
+                                     works for both Workspace and consumer Gmail)
+  /cal availability                — View/edit availability preferences
+  /cal availability set <key> <v>  — Update preference (no_weekends, work_start,
+                                     work_end, buffer_minutes)
+  /cal availability block <date>   — Block a specific date
+  /cal availability unblock <date> — Unblock a date
   /cal briefing                    — Today's calendar briefing
   /cal tomorrow                    — Tonight + tomorrow preview
   /cal weekahead                   — Week ahead preview
   /cal holidays [3m|6m|1y]         — Upcoming public holidays (default: 3m)
   /cal holidays sync [country]     — Sync holidays to calendar (default: malaysia)
-  /event <natural language>        — Add event (supports recurring, locations, URLs)
+  /event <natural language>        — Add event (refuses to create overlapping
+                                     events; prompts yes/no/reschedule on
+                                     conflict or availability violation)
   /event delete <search>           — Delete event by title (add "all" for recurring)
+
+Availability preferences (plugin_settings.calendar.availability in config.yaml)
+let the bot know your no-meeting rules — e.g. no weekends, no after 6pm —
+so it refuses to add violating events and surfaces them to the AI agent
+when suggesting times to other people.
 
 ICS forwarding:
   Forward an email with .ics attachment → bot parses and adds to calendar
@@ -33,16 +47,321 @@ from telegram.ext import (
     filters,
 )
 
+from cupbots.config import update_config_key
 from cupbots.helpers.calendar_client import get_calendar_client, CalendarClient
+from cupbots.helpers.channel import WhatsAppReplyContext
 from cupbots.helpers.logger import get_logger
+from cupbots.helpers.oauth import register_provider, start_flow
 from icalendar import Calendar as iCalendar
 
 log = get_logger("calendar")
 TZ = ZoneInfo("Asia/Kuala_Lumpur")
 
+CALENDAR_OAUTH_SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
 
 def _get_client() -> CalendarClient:
     return get_calendar_client()
+
+
+# ---------------------------------------------------------------------------
+# Google Calendar OAuth (per-user, works for Workspace + consumer Gmail)
+# ---------------------------------------------------------------------------
+
+async def _on_calendar_connected(tokens: dict, metadata: dict):
+    """OAuth success callback — persists the refresh token to plugin config.
+
+    The hub holds the OAuth client_id / client_secret as env vars; we only
+    need to remember the refresh_token, which the hub uses to mint fresh
+    access tokens on demand via `oauth.refresh`.
+    """
+    refresh_token = tokens.get("refresh_token", "")
+    if not refresh_token:
+        log.error("Calendar OAuth: no refresh_token returned (user must re-consent)")
+        return
+
+    chat_id = metadata.get("chat_id", "")
+
+    update_config_key(
+        f"plugin_settings.{PLUGIN_NAME}.google_calendar_refresh_token",
+        refresh_token,
+    )
+    update_config_key(
+        f"plugin_settings.{PLUGIN_NAME}.CALENDAR_BACKEND",
+        "google",
+    )
+
+    if chat_id:
+        ctx = WhatsAppReplyContext(chat_id)
+        await ctx.reply_text(
+            "Google Calendar connected.\n\n"
+            "Try `/cal` to see today's events. To switch back, "
+            "set `CALENDAR_BACKEND` to `caldav` in plugin_settings.calendar."
+        )
+    log.info("Google Calendar OAuth completed")
+
+
+register_provider("google_calendar", {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "default_scopes": CALENDAR_OAUTH_SCOPES,
+    "on_success": _on_calendar_connected,
+})
+
+
+# ---------------------------------------------------------------------------
+# Availability preferences
+#
+# Stored in plugin_settings.calendar.availability (config.yaml). The AI agent
+# and the /event flow consult these before scheduling. Edit via
+# `/cal availability set <key> <value>`.
+#
+# Defaults are intentionally permissive — if the user has not configured
+# anything, behaviour is unchanged from prior versions.
+# ---------------------------------------------------------------------------
+
+PLUGIN_NAME = "calendar"
+
+_AVAIL_DEFAULTS = {
+    "no_weekends": False,
+    "work_start": "00:00",
+    "work_end": "23:59",
+    "buffer_minutes": 0,
+    "blocked_days": [],
+}
+
+
+def _load_availability() -> dict:
+    """Read availability preferences from config.yaml plugin_settings.calendar."""
+    try:
+        from cupbots.config import get_config
+        cal_settings = (get_config().get("plugin_settings", {}) or {}).get(PLUGIN_NAME, {}) or {}
+        avail = cal_settings.get("availability") or {}
+    except Exception:
+        avail = {}
+    out = dict(_AVAIL_DEFAULTS)
+    if isinstance(avail, dict):
+        out.update({k: v for k, v in avail.items() if k in _AVAIL_DEFAULTS})
+    # normalise types
+    if isinstance(out.get("blocked_days"), str):
+        out["blocked_days"] = [out["blocked_days"]]
+    out["blocked_days"] = list(out.get("blocked_days") or [])
+    try:
+        out["buffer_minutes"] = int(out.get("buffer_minutes") or 0)
+    except (TypeError, ValueError):
+        out["buffer_minutes"] = 0
+    return out
+
+
+def _parse_iso(s: str) -> date | None:
+    """Parse a strict YYYY-MM-DD string into a date, or None."""
+    try:
+        return datetime.strptime(s.strip(), "%Y-%m-%d").date()
+    except (ValueError, AttributeError):
+        return None
+
+
+def _expand_blocked_days(entries) -> set[str]:
+    """Expand blocked_days entries into a set of ISO date strings.
+
+    Each entry may be:
+      - a single ISO date: "2026-04-10"
+      - a string range: "2026-04-10..2026-04-15" or "2026-04-10/2026-04-15"
+      - a dict: {"from": "2026-04-10", "to": "2026-04-15"}
+
+    Invalid entries are silently skipped (they remain visible in the
+    formatted display so the user can correct them).
+    """
+    out: set[str] = set()
+    if not entries:
+        return out
+    if isinstance(entries, (str, dict)):
+        entries = [entries]
+
+    for entry in entries:
+        if isinstance(entry, dict):
+            start = _parse_iso(str(entry.get("from", "")))
+            end = _parse_iso(str(entry.get("to", "")))
+            if not start:
+                continue
+            end = end or start
+        else:
+            text = str(entry).strip()
+            if not text:
+                continue
+            sep = ".." if ".." in text else ("/" if "/" in text else None)
+            if sep:
+                a, _, b = text.partition(sep)
+                start = _parse_iso(a)
+                end = _parse_iso(b)
+                if not start or not end:
+                    continue
+            else:
+                start = _parse_iso(text)
+                if not start:
+                    continue
+                end = start
+
+        if end < start:
+            start, end = end, start
+        cur = start
+        while cur <= end:
+            out.add(cur.isoformat())
+            cur += timedelta(days=1)
+    return out
+
+
+def _save_availability(avail: dict) -> None:
+    from cupbots.config import update_config_key
+    update_config_key(f"plugin_settings.{PLUGIN_NAME}.availability", avail)
+
+
+def _parse_hhmm(raw: str) -> tuple[int, int] | None:
+    m = re.match(r"^(\d{1,2}):(\d{2})$", raw.strip())
+    if not m:
+        return None
+    h, mm = int(m.group(1)), int(m.group(2))
+    if 0 <= h <= 23 and 0 <= mm <= 59:
+        return h, mm
+    return None
+
+
+def _format_availability(avail: dict) -> str:
+    lines = ["Availability preferences:"]
+    lines.append(f"  no_weekends:    {'yes' if avail['no_weekends'] else 'no'}")
+    lines.append(f"  work_start:     {avail['work_start']}")
+    lines.append(f"  work_end:       {avail['work_end']}")
+    lines.append(f"  buffer_minutes: {avail['buffer_minutes']}")
+    raw_blocked = avail.get("blocked_days") or []
+    if raw_blocked:
+        # Show the raw entries (preserves user-friendly ranges) plus the
+        # expanded total count.
+        rendered = []
+        for entry in raw_blocked:
+            if isinstance(entry, dict):
+                rendered.append(f"{entry.get('from','?')}..{entry.get('to','?')}")
+            else:
+                rendered.append(str(entry))
+        expanded = _expand_blocked_days(raw_blocked)
+        lines.append(f"  blocked_days:   {', '.join(rendered)}  ({len(expanded)} days)")
+    else:
+        lines.append("  blocked_days:   (none)")
+    return "\n".join(lines)
+
+
+def check_availability(dtstart: datetime, dtend: datetime, avail: dict | None = None) -> list[str]:
+    """Return a list of human-readable reasons the slot violates user prefs.
+
+    Empty list = slot is acceptable. Used by /event and exposed to the AI
+    agent so it knows the user's preferences before suggesting times.
+    """
+    avail = avail or _load_availability()
+    reasons: list[str] = []
+
+    start_local = dtstart.astimezone(TZ) if dtstart.tzinfo else dtstart.replace(tzinfo=TZ)
+    end_local = dtend.astimezone(TZ) if dtend.tzinfo else dtend.replace(tzinfo=TZ)
+
+    if avail.get("no_weekends") and start_local.weekday() >= 5:
+        reasons.append(f"falls on a weekend ({start_local.strftime('%A')})")
+
+    ws = _parse_hhmm(str(avail.get("work_start", "00:00"))) or (0, 0)
+    we = _parse_hhmm(str(avail.get("work_end", "23:59"))) or (23, 59)
+    work_start_min = ws[0] * 60 + ws[1]
+    work_end_min = we[0] * 60 + we[1]
+
+    start_min = start_local.hour * 60 + start_local.minute
+    end_min = end_local.hour * 60 + end_local.minute
+    # Multi-day events: only check the start-day boundary
+    if end_local.date() != start_local.date():
+        end_min = 24 * 60
+
+    if start_min < work_start_min:
+        reasons.append(f"starts before work hours ({avail['work_start']})")
+    if end_min > work_end_min:
+        reasons.append(f"ends after work hours ({avail['work_end']})")
+
+    blocked = _expand_blocked_days(avail.get("blocked_days"))
+    if start_local.date().isoformat() in blocked:
+        reasons.append(f"date {start_local.date().isoformat()} is blocked")
+
+    return reasons
+
+
+def _suggest_alternative_slots(dtstart: datetime, duration: timedelta,
+                               avail: dict, max_slots: int = 3) -> list[tuple[datetime, datetime]]:
+    """Find a few free slots over the next 7 days that satisfy availability prefs."""
+    cal = _get_client()
+    suggestions: list[tuple[datetime, datetime]] = []
+    duration_min = max(15, int(duration.total_seconds() // 60))
+
+    ws = _parse_hhmm(str(avail.get("work_start", "09:00"))) or (9, 0)
+    we = _parse_hhmm(str(avail.get("work_end", "18:00"))) or (18, 0)
+
+    blocked_set = _expand_blocked_days(avail.get("blocked_days"))
+    for offset in range(0, 8):
+        target = (dtstart + timedelta(days=offset)).date()
+        if avail.get("no_weekends") and target.weekday() >= 5:
+            continue
+        if target.isoformat() in blocked_set:
+            continue
+        try:
+            slots = cal.get_free_slots(
+                target,
+                duration_minutes=duration_min,
+                start_hour=ws[0],
+                end_hour=we[0] if we[1] == 0 else we[0] + 1,
+            )
+        except Exception as e:
+            log.warning("get_free_slots failed for %s: %s", target, e)
+            continue
+        for s_start, s_end in slots:
+            if (s_end - s_start) >= duration:
+                fit_end = s_start + duration
+                if not check_availability(s_start, fit_end, avail):
+                    suggestions.append((s_start, fit_end))
+                    if len(suggestions) >= max_slots:
+                        return suggestions
+    return suggestions
+
+
+# ---------------------------------------------------------------------------
+# Pending event confirmations
+#
+# When /event would create a conflict or violate availability, we DON'T add it.
+# Instead we stash it here and wait for the user's next text message:
+#   "yes"/"y"/"confirm"  → add anyway
+#   "no"/"n"/"cancel"    → drop
+#   "reschedule"         → suggest alternatives
+# Keyed by sender_id with a TTL so stale entries expire.
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+_PENDING_TTL_SEC = 600  # 10 minutes
+_pending_events: dict[str, dict] = {}
+
+
+def _cleanup_pending() -> None:
+    now = _time.time()
+    expired = [k for k, v in _pending_events.items() if now - v.get("ts", 0) > _PENDING_TTL_SEC]
+    for k in expired:
+        _pending_events.pop(k, None)
+
+
+def _stash_pending(sender_id: str, payload: dict) -> None:
+    _cleanup_pending()
+    payload["ts"] = _time.time()
+    _pending_events[sender_id] = payload
+
+
+def _take_pending(sender_id: str) -> dict | None:
+    _cleanup_pending()
+    return _pending_events.pop(sender_id, None)
+
+
+def _peek_pending(sender_id: str) -> dict | None:
+    _cleanup_pending()
+    return _pending_events.get(sender_id)
 
 
 def _format_event(ev: dict) -> str:
@@ -110,18 +429,31 @@ def _parse_date(raw: str, now: datetime) -> date | None:
             delta += 7
         return now.date() + timedelta(days=delta)
 
-    # Try common date formats
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m", "%d-%m", "%d %b", "%d %B", "%b %d", "%B %d"):
-        try:
-            parsed = datetime.strptime(raw, fmt)
-            if fmt in ("%d/%m", "%d-%m", "%d %b", "%d %B", "%b %d", "%B %d"):
-                parsed = parsed.replace(year=now.year)
-                # If the date has passed this year, assume next year
-                if parsed.date() < now.date():
-                    parsed = parsed.replace(year=now.year + 1)
-            return parsed.date()
-        except ValueError:
-            continue
+    # Try common date formats. We try the raw string AND a variant where
+    # we insert a space between digits and letters, so things like "8apr",
+    # "apr8", "8APR" parse the same way as "8 apr".
+    candidates = [raw]
+    spaced = re.sub(r"(\d)([a-z])", r"\1 \2", raw)
+    spaced = re.sub(r"([a-z])(\d)", r"\1 \2", spaced)
+    if spaced != raw:
+        candidates.append(spaced)
+
+    for candidate in candidates:
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m", "%d-%m",
+                    "%d %b", "%d %B", "%b %d", "%B %d"):
+            try:
+                parsed = datetime.strptime(candidate, fmt)
+                if fmt in ("%d/%m", "%d-%m", "%d %b", "%d %B", "%b %d", "%B %d"):
+                    parsed = parsed.replace(year=now.year)
+                    # If the date is in the recent past (within ~30 days), keep
+                    # this year — the user probably means a date they just had.
+                    # Only roll forward to next year if it's clearly in the past.
+                    delta_days = (now.date() - parsed.date()).days
+                    if delta_days > 30:
+                        parsed = parsed.replace(year=now.year + 1)
+                return parsed.date()
+            except ValueError:
+                continue
 
     return None
 
@@ -200,8 +532,8 @@ async def cmd_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ CalDAV error: {e}")
         return
 
-    if target == now.date():
-        events = [ev for ev in events if ev["end"] > now]
+    # Explicit date queries show ALL events that day, including past ones —
+    # the user asked for the date, not "what's left to do".
 
     if not events:
         await update.message.reply_text(f"📅 No events on {label}.")
@@ -398,164 +730,101 @@ async def cmd_free(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def _parse_event_args(args: list[str]) -> tuple[str, datetime, datetime] | None:
-    """Parse /event arguments. Returns (title, start, end) or None.
-
-    Formats:
-      /event Meeting 2026-03-24 14:00
-      /event Meeting 2026-03-24 14:00 1h30m
-      /event Meeting tomorrow 14:00
-      /event Meeting tomorrow 14:00 2h
-    """
-    if len(args) < 3:
-        return None
-
-    # Find the date/time parts from the end
-    # Try to find a time pattern (HH:MM)
-    time_idx = None
-    for i, arg in enumerate(args):
-        if re.match(r"^\d{1,2}:\d{2}$", arg):
-            time_idx = i
-            break
-
-    if time_idx is None or time_idx < 2:
-        return None
-
-    # Title is everything before the date
-    date_idx = time_idx - 1
-
-    title = " ".join(args[:date_idx])
-    if not title:
-        return None
-
-    # Parse date
-    date_str = args[date_idx].lower()
-    now = datetime.now(TZ)
-
-    if date_str == "today":
-        event_date = now.date()
-    elif date_str == "tomorrow":
-        event_date = now.date() + timedelta(days=1)
-    else:
-        for fmt in ("%Y-%m-%d", "%d/%m", "%d-%m"):
-            try:
-                parsed = datetime.strptime(date_str, fmt)
-                if fmt in ("%d/%m", "%d-%m"):
-                    parsed = parsed.replace(year=now.year)
-                event_date = parsed.date()
-                break
-            except ValueError:
-                continue
-        else:
-            return None
-
-    # Parse time
-    time_parts = args[time_idx].split(":")
-    hour, minute = int(time_parts[0]), int(time_parts[1])
-
-    dtstart = datetime(
-        event_date.year, event_date.month, event_date.day,
-        hour, minute, tzinfo=TZ,
-    )
-
-    # Parse optional duration (default 1h)
-    duration = timedelta(hours=1)
-    if time_idx + 1 < len(args):
-        dur_str = args[time_idx + 1]
-        total = timedelta()
-        for match in re.finditer(r"(\d+)(h|m)", dur_str):
-            val, unit = int(match.group(1)), match.group(2)
-            if unit == "h":
-                total += timedelta(hours=val)
-            elif unit == "m":
-                total += timedelta(minutes=val)
-        if total > timedelta():
-            duration = total
-
-    dtend = dtstart + duration
-
-    return title, dtstart, dtend
-
-
 from cupbots.helpers.llm import _extract_json, ask_llm
 
 
-async def _parse_event_with_llm(raw_input: str) -> dict | None:
-    """Use LLM to parse natural language event input.
+# Time words used by the tripwire check — if the orchestrator resolves
+# `/event create` with a title made entirely of these, we refuse no
+# matter the confidence. This is the "last line of defense" safety net.
+_TIME_WORDS = {
+    "today", "tomorrow", "yesterday", "now", "tonight",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "mon", "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+    "morning", "afternoon", "evening", "noon", "midnight",
+    "am", "pm", "a.m.", "p.m.",
+    "next", "this", "last", "every", "each",
+    "week", "weeks", "month", "months", "year", "years", "day", "days",
+    "hour", "hours", "minute", "minutes", "min", "mins", "hr", "hrs",
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
+    "january", "february", "march", "april", "june", "july", "august",
+    "september", "october", "november", "december",
+    "at", "on", "in", "by", "for", "from", "to", "the", "a", "an", "event", "meeting",
+}
 
-    Returns dict: title, start, end, location, rrule.
+
+def _is_pure_time_word_title(title: str) -> bool:
+    """Tripwire: return True if the title is made entirely of time words.
+
+    Used as a safety net after the orchestrator resolves /event create —
+    if the LLM hallucinated 'Next Wednesday' as a title, we catch it here
+    regardless of the confidence score it returned.
     """
-    now = datetime.now(TZ)
+    if not title or not title.strip():
+        return True
+    tokens = re.findall(r"[A-Za-z][A-Za-z'.]+", title.lower())
+    if not tokens:
+        return True
+    return all(t in _TIME_WORDS for t in tokens)
 
-    # Extract URLs before sending to LLM to avoid JSON escaping issues
-    import re as _re
-    _url_pattern = _re.compile(r'https?://\S+')
-    extracted_urls = _url_pattern.findall(raw_input)
-    # Remove URLs from the input so LLM doesn't struggle with special chars in JSON
-    clean_input = _url_pattern.sub('', raw_input).strip()
-    clean_input = _re.sub(r'\s{2,}', ' ', clean_input)
 
-    prompt = (
-        f"Parse this event: {clean_input}\n\n"
-        f"Current date/time: {now.strftime('%Y-%m-%d %H:%M')} ({now.strftime('%A')}). "
-        f"Timezone: Asia/Kuala_Lumpur (UTC+8).\n\n"
-        f"Reply with ONLY a JSON object:\n"
-        f'{{"title": "...", "date": "YYYY-MM-DD", "time": "HH:MM", '
-        f'"duration_minutes": N, "location": "...", "rrule": "..."}}\n\n'
-        f"Rules:\n"
-        f"- Infer the date from relative words (today, tomorrow, thursday, next week, etc.)\n"
-        f"- For recurring events, set date to the first occurrence and rrule to an iCalendar RRULE value:\n"
-        f"  e.g. every wednesday → date=next wednesday, rrule=FREQ=WEEKLY;BYDAY=WE\n"
-        f"  e.g. every day → rrule=FREQ=DAILY\n"
-        f"  e.g. every 2 weeks on monday → rrule=FREQ=WEEKLY;INTERVAL=2;BYDAY=MO\n"
-        f"- Parse times like 10am, 2pm, 14:00, noon, etc.\n"
-        f"- TIMEZONE CONVERSION (CRITICAL): The output date and time MUST be in Asia/Kuala_Lumpur (UTC+8).\n"
-        f"  If the user specifies a different timezone or city, you MUST convert to Malaysia time.\n"
-        f"  Common offsets: Melbourne/Sydney AEDT=UTC+11 (3h ahead of MYT), Tokyo JST=UTC+9 (1h ahead),\n"
-        f"  London GMT=UTC+0 (8h behind), New York EST=UTC-5 (13h behind), LA PST=UTC-8 (16h behind).\n"
-        f"  Example: 1pm Melbourne time on 31 Mar → 10am Malaysia time on 31 Mar (subtract 3 hours).\n"
-        f"  Example: 9am London time → 5pm Malaysia time (add 8 hours). The DATE may also change.\n"
-        f"- Default duration is 60 minutes unless specified\n"
-        f"- Extract URLs or addresses as location\n"
-        f"- The title is the event description without date/time/location parts\n"
-        f"- Set location and rrule to null if not applicable\n"
-        f"- If you cannot parse at all, reply with just: null"
-    )
+def _parse_flag_args(args: list[str]) -> dict:
+    """Parse a primitive's flag-style args into a dict.
 
-    text = await ask_llm(prompt, json_mode=False, timeout=30)
-    data = _extract_json(text)
-    if not data or not isinstance(data, dict):
-        log.warning("Event parse failed. LLM returned: %s", (text or "")[:300])
-        return None
+    Accepts:
+        --title "Some thing"
+        --title Dentist
+        --start 2026-04-09T14:00
+        --end 2026-04-09T15:00
+        --location "Zoom URL"
+        --rrule FREQ=WEEKLY;BYDAY=MO
+        --query "standup next wed"
+        --uid abc-123
 
+    Values may be quoted or bare. Everything up to the next --flag is the
+    value. Flag names are normalized to lowercase without the leading --.
+    """
+    # First reconstruct the raw string and re-tokenize with shlex so that
+    # quoted values with spaces work correctly.
+    import shlex
     try:
-        event_date = datetime.strptime(data["date"], "%Y-%m-%d").date()
-        time_parts = data["time"].split(":")
-        hour, minute = int(time_parts[0]), int(time_parts[1])
-        duration = timedelta(minutes=int(data.get("duration_minutes", 60)))
+        tokens = shlex.split(" ".join(args))
+    except ValueError:
+        tokens = list(args)
 
-        dtstart = datetime(
-            event_date.year, event_date.month, event_date.day,
-            hour, minute, tzinfo=TZ,
-        )
-        dtend = dtstart + duration
+    out: dict = {}
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.startswith("--"):
+            key = tok[2:].lower()
+            # Collect value tokens until next --flag
+            values = []
+            i += 1
+            while i < len(tokens) and not tokens[i].startswith("--"):
+                values.append(tokens[i])
+                i += 1
+            out[key] = " ".join(values).strip()
+        else:
+            i += 1
+    return out
 
-        location = data.get("location") or ""
-        # Re-attach extracted URL if LLM didn't capture it
-        if extracted_urls and not location:
-            location = extracted_urls[0]
-        elif extracted_urls and location and not location.startswith("http"):
-            location = extracted_urls[0]
 
-        return {
-            "title": data["title"],
-            "start": dtstart,
-            "end": dtend,
-            "location": location,
-            "rrule": data.get("rrule") or "",
-        }
-    except (KeyError, ValueError):
+def _parse_iso_datetime(raw: str) -> datetime | None:
+    """Parse an ISO 8601 datetime string into a tz-aware datetime in TZ.
+
+    Accepts naive ISO (assumed in TZ) and tz-aware ISO. Returns None on
+    failure.
+    """
+    if not raw:
         return None
+    raw = raw.strip()
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=TZ)
+    return dt
 
 
 # Map RRULE freq to human-readable label
@@ -578,84 +847,17 @@ def _rrule_to_label(rrule: str) -> str:
 
 
 async def cmd_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not context.args:
-        await update.message.reply_text(
-            "Usage:\n"
-            "`/event Dentist tomorrow 14:00 30m`\n"
-            "`/event Checkup at Sunway 10am this thursday`\n"
-            "`/event Meeting with Larry every wed 10pm https://zoom.us/j/123`\n"
-            "`/event delete <search>` — Delete event\n"
-            "`/event delete all <search>` — Delete all recurring",
-            parse_mode="Markdown",
-        )
+    """Telegram legacy handler — kept only for the telegram `register()`
+    path, which is not currently wired in bot.py. The WhatsApp router
+    uses handle_command() + the orchestrator instead.
+    """
+    if not update.message:
         return
-
-    # /event delete → delegate to cmd_delete
-    if context.args[0].lower() == "delete":
-        context.args = context.args[1:]
-        return await cmd_delete(update, context)
-
-    raw = " ".join(context.args)
-    location = ""
-    rrule = ""
-
-    # Try strict parser first, fall back to LLM
-    parsed = _parse_event_args(context.args)
-    if parsed:
-        title, dtstart, dtend = parsed
-    else:
-        try:
-            llm_result = await _parse_event_with_llm(raw)
-        except Exception as e:
-            await update.message.reply_text(f"❌ Parse error: {e}")
-            return
-
-        if not llm_result:
-            await update.message.reply_text(
-                "❌ Couldn't understand that. Try something like:\n"
-                "`/event Team lunch tomorrow noon 1h30m`\n"
-                "`/event Standup every monday 9am`",
-                parse_mode="Markdown",
-            )
-            return
-
-        title = llm_result["title"]
-        dtstart = llm_result["start"]
-        dtend = llm_result["end"]
-        location = llm_result.get("location", "")
-        rrule = llm_result.get("rrule", "")
-
-    try:
-        cal = _get_client()
-
-        # Check conflicts
-        conflicts = cal.check_conflicts(dtstart, dtend)
-        conflict_warning = ""
-        if conflicts:
-            names = ", ".join(c["summary"] for c in conflicts)
-            conflict_warning = f"\n⚠️ Conflicts with: {names}"
-
-        uid = cal.add_event(title, dtstart, dtend, location=location, rrule=rrule)
-    except Exception as e:
-        log.error("CalDAV event creation failed: %s", e)
-        await update.message.reply_text(f"❌ CalDAV error: {e}")
-        return
-
-    duration = dtend - dtstart
-    hours = int(duration.total_seconds() // 3600)
-    mins = int((duration.total_seconds() % 3600) // 60)
-    dur_str = f"{hours}h" + (f"{mins}m" if mins else "") if hours else f"{mins}m"
-
-    extras = ""
-    if rrule:
-        extras += f"\n🔁 Repeats {_rrule_to_label(rrule)}"
-    if location:
-        extras += f"\n📍 {location}"
-
     await update.message.reply_text(
-        f"📅 Event created: *{title}*\n"
-        f"📆 {dtstart.strftime('%a %d %b %H:%M')}–{dtend.strftime('%H:%M')} ({dur_str})"
-        f"{extras}{conflict_warning}",
+        "Event creation now goes through the AI orchestrator.\n"
+        "On WhatsApp, just type natural language like:\n"
+        "  /event Dentist tomorrow 2pm 30m\n"
+        "  /event Coffee with Ahmad next thursday 10am",
         parse_mode="Markdown",
     )
 
@@ -1121,9 +1323,11 @@ _TG_CAL_HELP = (
     "`/cal 5` — Next 5 days\n"
     "`/cal week` — Next 7 days\n"
     "`/cal next` — Next upcoming event\n"
-    "`/cal thursday` — Events on a date\n"
+    "`/cal thursday` — Events on a day name\n"
+    "`/cal 6 apr` — Events on a specific date\n"
     "`/cal free` — Free slots today\n"
     "`/cal free tomorrow` — Free slots on date\n"
+    "`/cal availability` — View/edit no-meeting preferences\n"
     "`/cal briefing` — Today's calendar briefing\n"
     "`/cal tomorrow` — Tonight + tomorrow preview\n"
     "`/cal weekahead` — Week ahead preview\n"
@@ -1134,6 +1338,7 @@ _TG_CAL_HELP = (
     "`/event Call with Bob wed 3pm https://zoom.us/j/123` — With location\n"
     "`/event delete <search>` — Delete event by title\n"
     "`/event delete all <search>` — Delete all recurring\n\n"
+    "Conflicting events are blocked — reply yes/no/reschedule to resolve.\n"
     "📎 Forward a `.ics` file to import events."
 )
 
@@ -1193,7 +1398,16 @@ async def cmd_cal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, disable_web_page_preview=True)
         return
 
-    # /cal <number> → agenda
+    # /cal <date> with multiple args (e.g. "6 apr", "next friday") → specific day
+    # Try date parsing first when there are multiple args, so "/cal 6 apr"
+    # parses as a date instead of being misread as "6 days ahead".
+    if len(args) > 1:
+        target = _parse_date(" ".join(args), now)
+        if target:
+            context.args = args
+            return await cmd_day(update, context)
+
+    # /cal <number> → agenda (single bare number, e.g. /cal 5)
     try:
         days_count = int(sub)
         context.args = [str(max(1, min(days_count, 30)))]
@@ -1201,7 +1415,7 @@ async def cmd_cal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         pass
 
-    # /cal <date> → specific day
+    # /cal <date> → specific day (single arg like "thursday", "tomorrow")
     context.args = args
     return await cmd_day(update, context)
 
@@ -1459,10 +1673,11 @@ async def _cal_day(now, target, reply):
     except Exception as e:
         await reply.reply_error(f"CalDAV error: {e}")
         return
-    if target == now.date():
-        events = [ev for ev in events if ev["end"] > now]
+    # Note: when the user explicitly asks for a date (even today), show ALL
+    # events that day — including past ones. Filtering "events that ended
+    # already" only applies to the bare `/cal` shortcut for today.
     if not events:
-        await reply.reply_text(f"No events on {label}.")
+        await reply.reply_text(f"No events on {label} ({_format_date_header(target)}).")
         return
     lines = [f"{label} -- {_format_date_header(target)}\n"]
     for ev in sorted(events, key=lambda e: e["start"]):
@@ -1493,6 +1708,157 @@ async def _cal_next(now, reply):
     await reply.reply_text("\n".join(lines))
 
 
+def _split_block_args(rest: list[str]) -> tuple[str, str | None]:
+    """Split "block <a> [to|.. <b>]" into (a_text, b_text_or_None)."""
+    if not rest:
+        return "", None
+    text = " ".join(rest)
+    for sep in (" to ", " - ", "..", "/"):
+        if sep in text:
+            a, _, b = text.partition(sep)
+            return a.strip(), b.strip()
+    return text.strip(), None
+
+
+async def _cal_availability(args, reply):
+    """View or update availability preferences."""
+    avail = _load_availability()
+
+    if not args or args[0].lower() in ("show", "view", "list"):
+        await reply.reply_text(
+            _format_availability(avail) +
+            "\n\nUpdate with:\n"
+            "  /cal availability set no_weekends true|false\n"
+            "  /cal availability set work_start 09:00\n"
+            "  /cal availability set work_end 18:00\n"
+            "  /cal availability set buffer_minutes 15\n"
+            "  /cal availability block 10 apr           — single day\n"
+            "  /cal availability block 10 apr to 15 apr — range\n"
+            "  /cal availability unblock 10 apr"
+        )
+        return
+
+    sub = args[0].lower()
+
+    if sub == "set" and len(args) >= 3:
+        key = args[1].lower()
+        value = " ".join(args[2:]).strip()
+        if key not in _AVAIL_DEFAULTS or key == "blocked_days":
+            await reply.reply_text(
+                f"Unknown key '{key}'. Valid: no_weekends, work_start, work_end, buffer_minutes."
+            )
+            return
+        if key == "no_weekends":
+            avail[key] = value.lower() in ("true", "yes", "y", "1", "on")
+        elif key in ("work_start", "work_end"):
+            if not _parse_hhmm(value):
+                await reply.reply_text(f"Invalid time '{value}'. Use HH:MM (e.g. 09:00).")
+                return
+            avail[key] = value
+        elif key == "buffer_minutes":
+            try:
+                avail[key] = max(0, int(value))
+            except ValueError:
+                await reply.reply_text(f"Invalid integer '{value}'.")
+                return
+        _save_availability(avail)
+        await reply.reply_text(f"Updated.\n\n{_format_availability(avail)}")
+        return
+
+    if sub == "block" and len(args) >= 2:
+        now = datetime.now(TZ)
+        a_text, b_text = _split_block_args(list(args[1:]))
+        a = _parse_date(a_text, now) if a_text else None
+        if not a:
+            await reply.reply_text(f"Couldn't parse date '{a_text}'.")
+            return
+        b = _parse_date(b_text, now) if b_text else None
+        if b_text and not b:
+            await reply.reply_text(f"Couldn't parse end date '{b_text}'.")
+            return
+
+        blocked = list(avail.get("blocked_days") or [])
+        if b and b != a:
+            if b < a:
+                a, b = b, a
+            entry = f"{a.isoformat()}..{b.isoformat()}"
+            added_label = entry
+        else:
+            entry = a.isoformat()
+            added_label = entry
+
+        if entry not in blocked:
+            blocked.append(entry)
+            blocked.sort()
+            avail["blocked_days"] = blocked
+            _save_availability(avail)
+        await reply.reply_text(f"Blocked {added_label}.\n\n{_format_availability(avail)}")
+        return
+
+    if sub == "unblock" and len(args) >= 2:
+        now = datetime.now(TZ)
+        a_text, b_text = _split_block_args(list(args[1:]))
+        a = _parse_date(a_text, now) if a_text else None
+        if not a:
+            await reply.reply_text(f"Couldn't parse date '{a_text}'.")
+            return
+        b = _parse_date(b_text, now) if b_text else None
+
+        blocked = list(avail.get("blocked_days") or [])
+        if b and b != a:
+            # Drop any entry whose expansion is exactly the requested range,
+            # or any single-day entry that falls inside the range.
+            target_set = _expand_blocked_days([f"{a.isoformat()}..{b.isoformat()}"])
+            kept = []
+            for entry in blocked:
+                entry_set = _expand_blocked_days([entry])
+                if entry_set and entry_set.issubset(target_set):
+                    continue
+                kept.append(entry)
+            avail["blocked_days"] = kept
+        else:
+            iso = a.isoformat()
+            kept = []
+            for entry in blocked:
+                entry_set = _expand_blocked_days([entry])
+                if entry_set == {iso}:
+                    continue  # exact single-day match — drop
+                kept.append(entry)
+            avail["blocked_days"] = kept
+
+        _save_availability(avail)
+        await reply.reply_text(
+            f"Unblocked {a.isoformat()}{(' to ' + b.isoformat()) if b and b != a else ''}.\n\n"
+            + _format_availability(avail)
+        )
+        return
+
+    await reply.reply_text(
+        "Usage:\n"
+        "  /cal availability                                — show preferences\n"
+        "  /cal availability set <key> <value>              — update a key\n"
+        "  /cal availability block <date>                   — block a single date\n"
+        "  /cal availability block <date> to <date>         — block a range\n"
+        "  /cal availability unblock <date> [to <date>]     — unblock a date or range"
+    )
+
+
+async def _cal_connect(msg, reply):
+    """Kick off Google Calendar OAuth via the hub. Works for Workspace + consumer Gmail.
+
+    The hub holds the OAuth client_id / client_secret as env vars, so there's
+    no bot-side configuration. If the hub isn't connected or isn't configured,
+    start_flow() will surface a clear error to the user.
+    """
+    await start_flow(
+        provider="google_calendar",
+        scopes=None,
+        metadata={"chat_id": msg.chat_id},
+        reply=reply,
+        extra_params={"access_type": "offline", "prompt": "consent"},
+    )
+
+
 async def _cal_free(now, args, reply):
     target = now.date()
     if args:
@@ -1516,19 +1882,27 @@ async def _cal_free(now, args, reply):
 
 _CAL_HELP = (
     "Calendar commands:\n\n"
-    "/cal -- Today's events\n"
-    "/cal <N> -- Next N days\n"
-    "/cal week -- Next 7 days\n"
-    "/cal next -- Next upcoming event\n"
-    "/cal <date> -- Events on a date (e.g. thursday, 25 jun)\n"
-    "/cal free [date] -- Free slots\n"
-    "/cal briefing -- Today's calendar briefing\n"
-    "/cal tomorrow -- Tonight + tomorrow preview\n"
-    "/cal weekahead -- Week ahead preview\n"
-    "/cal holidays [3m|6m|1y] -- Upcoming holidays\n"
-    "/cal holidays sync [country] -- Sync holidays\n"
-    "/event <description> -- Add event\n"
-    "/event delete <search> -- Delete event"
+    "READ (use naturally):\n"
+    "  /cal -- today's events\n"
+    "  /cal week -- next 7 days\n"
+    "  /cal <N> -- next N days (e.g. /cal 5)\n"
+    "  /cal <date> -- events on a date (e.g. /cal 8 apr, /cal thursday)\n"
+    "  /cal next -- next upcoming event\n"
+    "  /cal free [date] -- free slots\n"
+    "  /cal availability -- view/edit no-meeting preferences\n"
+    "  /cal connect -- connect Google Calendar via OAuth (one click)\n"
+    "  /cal briefing | tomorrow | weekahead -- previews\n"
+    "  /cal holidays [3m|6m|1y] -- upcoming holidays\n"
+    "\n"
+    "WRITE (use EXACT flag syntax — for humans, just type natural language\n"
+    "and the bot's orchestrator will convert it):\n"
+    "  /event create --title X --start 2026-04-09T14:00 --end 2026-04-09T15:00\n"
+    "  /event create --title X --start 2026-04-09T14:00 --duration 30m\n"
+    "  /event delete --uid <uid>\n"
+    "  /event delete --query \"standup\"\n"
+    "  /event search --query \"standup\" [--days 30]\n"
+    "\n"
+    "On a conflict, /event will ask: yes / no / reschedule"
 )
 
 
@@ -1543,65 +1917,84 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text(__doc__.strip())
         return True
 
+    # Prepare the Google Calendar access token cache if we're on the Google
+    # backend. This is a no-op for CalDAV. It mints a fresh token via the hub
+    # (or hits the cache) so subsequent sync `_get_client().service` calls can
+    # build the Credentials object without blocking on a WebSocket roundtrip.
+    # Skipped for `/cal connect` itself (we don't have a refresh token yet).
+    if not (msg.args and msg.args[0].lower() == "connect" and msg.command == "cal"):
+        try:
+            cal_prep = _get_client()
+            if hasattr(cal_prep, "async_prepare"):
+                await cal_prep.async_prepare()
+        except Exception as e:
+            log.debug("Calendar async_prepare skipped: %s", e)
+
     now = datetime.now(TZ)
 
-    # --- /event (write commands) ---
+    # --- /event (write primitives only) ---
+    #
+    # /event is now a primitive command dispatched by the orchestrator
+    # layer in wa_router.py. It takes ONLY flag-style args:
+    #
+    #   /event create --title X --start 2026-04-09T14:00 --end 2026-04-09T15:00
+    #   /event create --title X --start 2026-04-09T14:00 --duration 30m
+    #   /event delete --uid <uid>
+    #   /event delete --query "standup"
+    #   /event search --query "standup" [--days 30]
+    #
+    # The orchestrator (resolve_write_intent in helpers/llm.py) translates
+    # natural-language `/event next wed 2pm dentist` into one of these
+    # primitive calls, with a confidence score gating execution. The
+    # plugin itself no longer parses natural language.
     if msg.command == "event":
         if not msg.args:
             await reply.reply_text(
-                "Usage: /event <description>\n"
-                "Examples:\n"
-                "  /event Dentist tomorrow 14:00 30m\n"
-                "  /event Team standup every monday 9am\n"
-                "  /event delete <search>"
+                "Usage:\n"
+                "  /event create --title X --start 2026-04-09T14:00 --end 2026-04-09T15:00\n"
+                "  /event create --title X --start 2026-04-09T14:00 --duration 60m\n"
+                "  /event delete --uid <uid>\n"
+                "  /event delete --query \"standup\"\n"
+                "  /event search --query \"standup\" [--days 30]\n"
+                "\n"
+                "Normally you won't call these directly — just type natural\n"
+                "language like `/event Dentist tomorrow 2pm 30m` and the\n"
+                "bot's orchestrator will resolve it for you."
             )
             return True
-        if msg.args[0].lower() == "delete":
-            msg.args = msg.args[1:]
-            return await _handle_delete(msg, reply)
-        # Create event via LLM parsing
-        raw = " ".join(msg.args)
-        try:
-            llm_result = await _parse_event_with_llm(raw)
-        except Exception as e:
-            await reply.reply_text(f"Parse error: {e}")
-            return True
-        if not llm_result:
+
+        action = msg.args[0].lower()
+        if action not in ("create", "delete", "search"):
+            # Unknown subcommand. Reply with the correct syntax so the AI
+            # agent self-corrects on its next turn instead of hallucinating
+            # variants like `/event list` forever.
             await reply.reply_text(
-                "Couldn't parse that. Try:\n"
-                "/event Team lunch tomorrow noon 1h30m\n"
-                "/event Standup every monday 9am"
+                f"'/event {action}' is not a valid subcommand.\n\n"
+                "Valid subcommands:\n"
+                "  /event create --title X --start 2026-04-09T14:00 --end 2026-04-09T15:00\n"
+                "  /event create --title X --start 2026-04-09T14:00 --duration 30m\n"
+                "  /event delete --uid <uid>\n"
+                "  /event delete --query \"standup\"\n"
+                "  /event search --query \"standup\" [--days 30]\n"
+                "\n"
+                "To LIST events, use /cal, /cal week, or /event search --query \"\"."
             )
             return True
-        title = llm_result["title"]
-        dtstart = llm_result["start"]
-        dtend = llm_result["end"]
-        location = llm_result.get("location", "")
-        rrule = llm_result.get("rrule", "")
-        # If the event is in the past and not recurring, bump to tomorrow
-        if not rrule and dtstart < now:
-            from datetime import timedelta
-            dtstart += timedelta(days=1)
-            dtend += timedelta(days=1)
 
-        tz_label = str(TZ).split("/")[-1]
-        try:
-            cal = _get_client()
-            uid = cal.add_event(title, dtstart, dtend, location=location, rrule=rrule)
-            parts = [f"Created: {title}"]
-            parts.append(f"{dtstart.strftime('%a %d %b %H:%M')} – {dtend.strftime('%H:%M')} ({tz_label})")
-            if rrule:
-                parts.append(f"Recurring: {rrule}")
-            if location:
-                parts.append(f"Location: {location}")
-            await reply.reply_text("\n".join(parts))
-        except Exception as e:
-            await reply.reply_text(f"Calendar error: {e}")
-        return True
+        flags = _parse_flag_args(msg.args[1:])
 
-    # --- /delete (legacy alias) ---
+        if action == "create":
+            return await _handle_event_create_primitive(msg, reply, flags)
+        if action == "delete":
+            return await _handle_event_delete_primitive(msg, reply, flags)
+        if action == "search":
+            return await _handle_event_search_primitive(msg, reply, flags)
+        return False  # unreachable
+
+    # --- /delete (legacy alias) → pass-through to /event delete --query ---
     if msg.command == "delete":
-        return await _handle_delete(msg, reply)
+        flags = {"query": " ".join(msg.args).strip()} if msg.args else {}
+        return await _handle_event_delete_primitive(msg, reply, flags)
 
     # --- Legacy aliases: route old commands into /cal logic ---
     if msg.command == "today":
@@ -1672,6 +2065,14 @@ async def handle_command(msg, reply) -> bool:
         await _cal_free(now, args[1:], reply)
         return True
 
+    if sub in ("availability", "avail", "prefs", "preferences"):
+        await _cal_availability(args[1:], reply)
+        return True
+
+    if sub == "connect":
+        await _cal_connect(msg, reply)
+        return True
+
     if sub == "holidays":
         return False
 
@@ -1687,6 +2088,15 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text(_build_week_ahead())
         return True
 
+    # Multi-arg form (e.g. "6 apr", "next friday") → try date parse first
+    # so /cal 6 apr is read as a date, not "6 days ahead".
+    if len(args) > 1:
+        target = _parse_date(" ".join(args), now)
+        if target:
+            await _cal_day(now, target, reply)
+            return True
+
+    # Single bare number → /cal N days agenda
     try:
         days_count = int(sub)
         await _cal_agenda(now, max(1, min(days_count, 30)), reply)
@@ -1699,69 +2109,467 @@ async def handle_command(msg, reply) -> bool:
         await _cal_day(now, target, reply)
         return True
 
-    await reply.reply_text(f"Unknown: {' '.join(args)}\n\n{_CAL_HELP}")
+    # We can't make sense of these args. Reply with the help text so the
+    # AI agent (or confused user) sees the valid subcommands and can
+    # self-correct. Return True so the router doesn't fall through.
+    await reply.reply_text(
+        f"'/cal {' '.join(args)}' is not a valid subcommand.\n\n"
+        + _CAL_HELP
+    )
     return True
 
 
-async def _handle_delete(msg, reply) -> bool:
-    """Handle event deletion (from /delete or /event delete)."""
-    if not msg.args:
+def _format_delete_candidate(ev: dict, idx: int | None = None) -> str:
+    """One-line label for a candidate event in the delete flow."""
+    start = ev["start"]
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=TZ)
+    start_local = start.astimezone(TZ)
+    end = ev["end"]
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=TZ)
+    end_local = end.astimezone(TZ)
+    title = ev.get("summary") or "(no title)"
+    if ev.get("all_day"):
+        time_str = "all day"
+    else:
+        time_str = f"{start_local.strftime('%H:%M')}-{end_local.strftime('%H:%M')}"
+    prefix = f"{idx}. " if idx is not None else "  "
+    return f"{prefix}{title}  —  {start_local.strftime('%a %d %b')} {time_str}"
+
+
+async def _handle_event_create_primitive(msg, reply, flags: dict) -> bool:
+    """Primitive: /event create --title X --start Y --end Z [--location L] [--rrule R]
+
+    Called by the orchestrator with pre-parsed, validated arguments. This
+    function does NO natural-language parsing — it trusts its flags and
+    enforces only deterministic safety checks (tripwire, conflicts,
+    availability).
+    """
+    title = flags.get("title", "").strip()
+    start_raw = flags.get("start", "")
+    end_raw = flags.get("end", "")
+    duration_raw = flags.get("duration", "")  # alt: "60m" or "1h"
+    location = flags.get("location", "")
+    rrule = flags.get("rrule", "") or flags.get("recurrence", "")
+
+    # --- Tripwire: refuse pure time-word titles regardless of caller ---
+    if _is_pure_time_word_title(title):
         await reply.reply_text(
-            "Usage:\n"
-            "/event delete <search> -- Delete next matching event\n"
-            "/event delete all <search> -- Delete all recurring instances"
+            f"I won't create an event with the title \"{title}\" — that's "
+            f"a time phrase, not a subject. Give me an actual title "
+            f"(e.g. Dentist, Coffee with Ahmad)."
         )
         return True
 
-    args = list(msg.args)
-    delete_all = args[0].lower() == "all"
-    if delete_all:
-        args = args[1:]
-    if not args:
-        await reply.reply_text("Please provide a search term.")
+    # --- Required args ---
+    if not title:
+        await reply.reply_text("Missing --title for /event create.")
+        return True
+    if not start_raw:
+        await reply.reply_text("Missing --start for /event create (ISO 8601, e.g. 2026-04-09T14:00).")
         return True
 
-    query = " ".join(args).lower()
+    dtstart = _parse_iso_datetime(start_raw)
+    if not dtstart:
+        await reply.reply_text(f"Invalid --start {start_raw!r}. Use ISO 8601 like 2026-04-09T14:00.")
+        return True
+
+    dtend = None
+    if end_raw:
+        dtend = _parse_iso_datetime(end_raw)
+        if not dtend:
+            await reply.reply_text(f"Invalid --end {end_raw!r}.")
+            return True
+    elif duration_raw:
+        total = timedelta()
+        for match in re.finditer(r"(\d+)\s*(h|m)", duration_raw.lower()):
+            val, unit = int(match.group(1)), match.group(2)
+            if unit == "h":
+                total += timedelta(hours=val)
+            elif unit == "m":
+                total += timedelta(minutes=val)
+        if total > timedelta():
+            dtend = dtstart + total
+    if not dtend:
+        dtend = dtstart + timedelta(hours=1)
+
+    if dtend <= dtstart:
+        await reply.reply_text("End time must be after start time.")
+        return True
+
     now = datetime.now(TZ)
 
+    # --- Safety: conflicts + availability (only for non-recurring) ---
+    avail = _load_availability()
+    conflicts: list[dict] = []
+    violations: list[str] = []
+    if not rrule:
+        try:
+            cal = _get_client()
+            conflicts = cal.check_conflicts(dtstart, dtend)
+        except Exception as e:
+            await reply.reply_text(f"Calendar error: {e}")
+            return True
+        violations = check_availability(dtstart, dtend, avail)
+
+    if conflicts or violations:
+        _stash_pending(msg.sender_id, {
+            "title": title,
+            "start": dtstart,
+            "end": dtend,
+            "location": location,
+            "rrule": rrule,
+            "raw": msg.text,
+        })
+        tz_label = str(TZ).split("/")[-1]
+        lines = [
+            f"Cannot add '{title}' as-is — conflict or preference violation.",
+            f"Requested: {dtstart.strftime('%a %d %b %H:%M')}–{dtend.strftime('%H:%M')} ({tz_label})",
+        ]
+        if conflicts:
+            names = ", ".join(c["summary"] or "(no title)" for c in conflicts)
+            lines.append(f"Conflicts with: {names}")
+        for v in violations:
+            lines.append(f"Violates preference: {v}")
+        duration = dtend - dtstart
+        suggestions = _suggest_alternative_slots(dtstart, duration, avail)
+        if suggestions:
+            lines.append("")
+            lines.append("Suggested free slots:")
+            for s_start, s_end in suggestions:
+                lines.append(f"  - {s_start.strftime('%a %d %b %H:%M')}–{s_end.strftime('%H:%M')}")
+        lines.append("")
+        lines.append("Reply 'yes' to add anyway, 'no' to cancel, 'reschedule' to draft a reply.")
+        await reply.reply_text("\n".join(lines))
+        return True
+
+    # --- Execute ---
+    tz_label = str(TZ).split("/")[-1]
     try:
         cal = _get_client()
-        events = cal.get_events(now, now + timedelta(days=365 if delete_all else 30))
+        cal.add_event(title, dtstart, dtend, location=location, rrule=rrule)
+    except Exception as e:
+        await reply.reply_text(f"Calendar error: {e}")
+        return True
+
+    parts = [f"Created: {title}",
+             f"{dtstart.strftime('%a %d %b %H:%M')} – {dtend.strftime('%H:%M')} ({tz_label})"]
+    if rrule:
+        parts.append(f"Recurring: {rrule}")
+    if location:
+        parts.append(f"Location: {location}")
+    await reply.reply_text("\n".join(parts))
+    return True
+
+
+async def _handle_event_delete_primitive(msg, reply, flags: dict) -> bool:
+    """Primitive: /event delete --uid <uid>  OR  /event delete --query <text>
+
+    --uid deletes exactly that event (no confirmation — the orchestrator or
+    a previous /event search already picked it).
+    --query is a fallback for when the orchestrator couldn't narrow the
+    target; it runs the old fuzzy flow but still requires confirmation.
+    """
+    now = datetime.now(TZ)
+    uid = flags.get("uid", "").strip()
+    query = flags.get("query", "").strip()
+
+    if uid:
+        try:
+            cal = _get_client()
+            deleted = cal.delete_events_by_uid({uid}, now, now + timedelta(days=365))
+        except Exception as e:
+            await reply.reply_error(f"Failed to delete: {e}")
+            return True
+        if deleted:
+            await reply.reply_text(f"Deleted event (uid={uid}).")
+        else:
+            await reply.reply_text(f"No event found with uid={uid}")
+        return True
+
+    if not query:
+        await reply.reply_text("Missing --uid or --query for /event delete.")
+        return True
+
+    # Fuzzy-query fallback: list candidates and stash for user to pick.
+    try:
+        cal = _get_client()
+        events = cal.get_events(now, now + timedelta(days=90))
     except Exception as e:
         await reply.reply_error(f"CalDAV error: {e}")
         return True
 
-    matches = [ev for ev in events if query in (ev["summary"] or "").lower()]
+    q_lower = query.lower()
+    q_words = [w for w in re.findall(r"[a-z0-9]+", q_lower) if w not in _TIME_WORDS]
+    if q_words:
+        matches = [ev for ev in events
+                   if all(w in (ev.get("summary") or "").lower() for w in q_words)]
+    else:
+        matches = []
+
     if not matches:
-        await reply.reply_text(f"No upcoming event matching \"{query}\".")
+        await reply.reply_text(
+            f"No upcoming event matching \"{query}\". Try /cal to see your schedule."
+        )
         return True
 
-    if delete_all:
-        uids_to_delete = {ev["uid"] for ev in matches}
-    else:
-        uids_to_delete = {matches[0]["uid"]}
+    if len(matches) == 1:
+        _stash_pending(msg.sender_id, {
+            "kind": "delete",
+            "candidates": matches,
+            "query": query,
+        })
+        await reply.reply_text(
+            f"Found 1 match for \"{query}\":\n\n"
+            f"{_format_delete_candidate(matches[0], idx=1)}\n\n"
+            f"Reply 'yes' or '1' to delete, 'no' to cancel."
+        )
+        return True
 
+    _stash_pending(msg.sender_id, {
+        "kind": "delete",
+        "candidates": matches,
+        "query": query,
+    })
+    lines = [f"Multiple events match \"{query}\" — which one?", ""]
+    for i, ev in enumerate(matches[:9], start=1):
+        lines.append(_format_delete_candidate(ev, idx=i))
+    if len(matches) > 9:
+        lines.append(f"  … and {len(matches) - 9} more")
+    lines.append("")
+    lines.append("Reply with the number, 'all', or 'no'.")
+    await reply.reply_text("\n".join(lines))
+    return True
+
+
+async def _handle_event_search_primitive(msg, reply, flags: dict) -> bool:
+    """Primitive: /event search --query X [--days N]
+
+    Returns a list of matching events with UIDs. Used by the orchestrator
+    to find targets for subsequent /event delete or /event edit calls.
+    """
+    query = flags.get("query", "").strip()
+    try:
+        days = int(flags.get("days", "60"))
+    except ValueError:
+        days = 60
+
+    now = datetime.now(TZ)
+    try:
+        cal = _get_client()
+        events = cal.get_events(now, now + timedelta(days=days))
+    except Exception as e:
+        await reply.reply_error(f"CalDAV error: {e}")
+        return True
+
+    if query:
+        q_lower = query.lower()
+        matches = [ev for ev in events if q_lower in (ev.get("summary") or "").lower()]
+    else:
+        matches = events[:20]
+
+    if not matches:
+        await reply.reply_text(f"No events match '{query}' in the next {days} days.")
+        return True
+
+    # Include the FULL uid so the caller (often the AI agent) can use it
+    # verbatim in a follow-up `/event delete --uid <uid>` call.
+    lines = [f"{len(matches)} match(es):"]
+    for ev in matches[:20]:
+        start_local = ev["start"].astimezone(TZ) if ev["start"].tzinfo else ev["start"].replace(tzinfo=TZ)
+        title = ev.get("summary") or "(no title)"
+        lines.append(
+            f"  uid={ev['uid']}  {start_local.strftime('%a %d %b %H:%M')}  {title}"
+        )
+    await reply.reply_text("\n".join(lines))
+    return True
+
+
+async def _execute_delete(cal, events: list[dict], now: datetime, reply,
+                          delete_all: bool = False) -> None:
+    """Delete the given events and reply with a summary."""
+    uids = {ev["uid"] for ev in events}
     try:
         deleted_count = cal.delete_events_by_uid(
-            uids_to_delete, now, now + timedelta(days=365)
+            uids, now, now + timedelta(days=365)
         )
     except Exception as e:
         await reply.reply_error(f"Failed to delete: {e}")
-        return True
+        return
 
     if deleted_count == 0:
         await reply.reply_text("Event found but couldn't delete it from calendar.")
+        return
+
+    if len(events) == 1:
+        ev = events[0]
+        start = ev["start"]
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=TZ)
+        start_local = start.astimezone(TZ)
+        end = ev["end"]
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=TZ)
+        end_local = end.astimezone(TZ)
+        if ev.get("all_day"):
+            time_str = "all day"
+        else:
+            time_str = f"{start_local.strftime('%H:%M')}-{end_local.strftime('%H:%M')}"
+        await reply.reply_text(
+            f"Deleted: {ev.get('summary') or '(no title)'}\n"
+            f"{start_local.strftime('%a %d %b')} {time_str}"
+        )
+        return
+
+    lines = [f"Deleted {deleted_count} event(s):"]
+    for ev in events[:10]:
+        lines.append(_format_delete_candidate(ev))
+    if len(events) > 10:
+        lines.append(f"  … and {len(events) - 10} more")
+    await reply.reply_text("\n".join(lines))
+
+
+async def handle_message(msg, reply) -> bool:
+    """Catch replies for pending calendar confirmations.
+
+    Two flavours of pending state share `_pending_events[sender_id]`:
+
+    - event-add (no "kind" key, or kind="event_add"): response is one of
+      yes / no / reschedule for a conflicting event creation.
+    - event-delete (kind="delete"): response is a number to pick which
+      candidate to delete, "all" to delete everything listed, or "no"
+      to cancel.
+
+    Returns False for any unrelated message so other plugins and the AI
+    router see it normally.
+    """
+    if not msg.text or msg.command:
+        return False
+
+    pending = _peek_pending(msg.sender_id)
+    if not pending:
+        return False
+
+    text = msg.text.strip().lower()
+    first = text.split()[0] if text else ""
+    kind = pending.get("kind", "event_add")
+
+    # --- Pending DELETE — expects a number, "yes"/"all", or "no" ---
+    if kind == "delete":
+        candidates: list[dict] = pending.get("candidates", [])
+        if not candidates:
+            _take_pending(msg.sender_id)
+            return False
+
+        if first in ("no", "n", "cancel", "drop", "skip"):
+            _take_pending(msg.sender_id)
+            await reply.reply_text("Delete cancelled.")
+            return True
+
+        # "yes" on a single-match pending confirms that one event.
+        # "yes" on an N-match pending is ambiguous; require a number.
+        if first in ("yes", "y", "confirm", "ok", "sure", "go"):
+            if len(candidates) == 1:
+                _take_pending(msg.sender_id)
+                try:
+                    cal = _get_client()
+                except Exception as e:
+                    await reply.reply_text(f"Calendar error: {e}")
+                    return True
+                await _execute_delete(cal, candidates, datetime.now(TZ), reply)
+                return True
+            # Multiple candidates — don't guess, prompt for a number.
+            await reply.reply_text(
+                f"Please reply with a number (1-{len(candidates)}), 'all', or 'no'."
+            )
+            return True
+
+        if first in ("all", "everything"):
+            _take_pending(msg.sender_id)
+            try:
+                cal = _get_client()
+            except Exception as e:
+                await reply.reply_text(f"Calendar error: {e}")
+                return True
+            await _execute_delete(
+                cal, candidates, datetime.now(TZ), reply, delete_all=True,
+            )
+            return True
+
+        # Numeric pick — supports "1", "#1", "1,2", "1 2 3"
+        picked_indices: list[int] = []
+        for token in re.findall(r"\d+", text):
+            try:
+                n = int(token)
+            except ValueError:
+                continue
+            if 1 <= n <= len(candidates) and (n - 1) not in picked_indices:
+                picked_indices.append(n - 1)
+
+        if picked_indices:
+            _take_pending(msg.sender_id)
+            try:
+                cal = _get_client()
+            except Exception as e:
+                await reply.reply_text(f"Calendar error: {e}")
+                return True
+            chosen = [candidates[i] for i in picked_indices]
+            await _execute_delete(cal, chosen, datetime.now(TZ), reply)
+            return True
+
+        # Unrecognized reply — leave pending in place so the user can try
+        # again, but don't hijack the message.
+        return False
+
+    # --- Pending EVENT-ADD (conflict confirmation) ---
+    if first in ("yes", "y", "confirm", "ok", "sure", "go"):
+        _take_pending(msg.sender_id)
+        try:
+            cal = _get_client()
+            cal.add_event(
+                pending["title"], pending["start"], pending["end"],
+                location=pending.get("location", ""), rrule=pending.get("rrule", ""),
+            )
+        except Exception as e:
+            await reply.reply_text(f"Calendar error: {e}")
+            return True
+        tz_label = str(TZ).split("/")[-1]
+        await reply.reply_text(
+            f"Added (with conflict): {pending['title']}\n"
+            f"{pending['start'].strftime('%a %d %b %H:%M')}–{pending['end'].strftime('%H:%M')} ({tz_label})"
+        )
         return True
 
-    if delete_all and len(matches) > 1:
-        await reply.reply_text(f"Deleted {deleted_count} event(s): {matches[0]['summary']} (all recurring)")
-    else:
-        ev = matches[0]
-        await reply.reply_text(
-            f"Deleted: {ev['summary']}\n"
-            f"{ev['start'].strftime('%a %d %b %H:%M')}-{ev['end'].strftime('%H:%M')}"
+    if first in ("no", "n", "cancel", "drop", "skip"):
+        _take_pending(msg.sender_id)
+        await reply.reply_text(f"Cancelled '{pending['title']}'.")
+        return True
+
+    if first in ("reschedule", "decline", "reply"):
+        _take_pending(msg.sender_id)
+        avail = _load_availability()
+        duration = pending["end"] - pending["start"]
+        suggestions = _suggest_alternative_slots(pending["start"], duration, avail)
+        slot_lines = "\n".join(
+            f"  - {s.strftime('%a %d %b %H:%M')}–{e.strftime('%H:%M')}"
+            for s, e in suggestions
+        ) or "  (no free slots in the next 7 days that match your preferences)"
+        draft = (
+            f"Hi! Thanks for the invite to '{pending['title']}'.\n\n"
+            f"Unfortunately I have a conflict at "
+            f"{pending['start'].strftime('%a %d %b, %H:%M')}–{pending['end'].strftime('%H:%M')} "
+            f"and can't make it. Could we reschedule? A few times that work for me:\n\n"
+            f"{slot_lines}\n\n"
+            f"Let me know what suits you and I'll lock it in. Thanks!"
         )
-    return True
+        await reply.reply_text(
+            "Draft reschedule reply (copy/paste or forward):\n\n" + draft
+        )
+        return True
+
+    # Not a recognized confirmation verb — leave the message alone.
+    return False
 
 
 def register(app: Application):

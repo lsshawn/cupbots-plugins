@@ -346,6 +346,12 @@ def _list_tracked(company_id: str, chat_id: str) -> list[dict]:
 
 
 def _all_tracked() -> list[dict]:
+    """Iterate ALL tracked keywords across ALL companies for the daily-alert
+    fan-out job. This is intentionally unscoped — the job needs to know every
+    keyword so it can send alerts to each tracking chat. Per-chat dispatch
+    below (_send_daily_alerts) correctly scopes mark-as-seen by the chat's
+    own company_id, so client A never sees client B's listings even though
+    the iteration is global. NOT a tenant leak."""
     conn = _db()
     rows = conn.execute("SELECT * FROM tracked_keywords ORDER BY keyword").fetchall()
     return [dict(r) for r in rows]

@@ -10,6 +10,11 @@
     "/lp status",
     "/lp domain"
   ],
+  "write_commands": [
+    "/lp",
+    "/lp edit",
+    "/lp domain"
+  ],
   "intent": "Deploy and manage landing pages from WhatsApp",
   "free": false,
   "price": "$29",

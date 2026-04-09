@@ -7,6 +7,9 @@
     "/idea",
     "/ideas"
   ],
+  "write_commands": [
+    "/idea"
+  ],
   "intent": "Capture startup ideas, project ideas, or brainstorms for later review",
   "config": [],
   "free": true,

@@ -88,17 +88,25 @@ def _gather_calendar(tz: ZoneInfo) -> str:
     return "\n".join(lines) if lines else "No calendar events today or tomorrow."
 
 
-def _gather_contacts() -> str:
-    """Overdue contacts and upcoming check-ins."""
+def _gather_contacts(company_id: str = "") -> str:
+    """Overdue contacts and upcoming check-ins, scoped to a company.
+
+    TENANT NOTE: heartbeat is currently single-tenant. The morning/evening
+    scheduled jobs target one Telegram chat (cfg["telegram"]["chat_id"]) and
+    pass company_id="" (the untenanted bucket — same scope as the contacts
+    plugin's Telegram code paths). To make heartbeat multi-tenant, register
+    one job per company and route briefings to the company's notify_chat.
+    """
     conn = get_plugin_db("contacts")
     today = datetime.now().strftime("%Y-%m-%d")
 
     overdue = conn.execute(
         """SELECT name, tier, next_contact, last_contact, notes
            FROM contacts
-           WHERE next_contact IS NOT NULL AND next_contact <= ?
+           WHERE company_id = ?
+             AND next_contact IS NOT NULL AND next_contact <= ?
            ORDER BY next_contact ASC LIMIT 10""",
-        (today,),
+        (company_id, today),
     ).fetchall()
 
     # Upcoming in next 7 days
@@ -106,9 +114,10 @@ def _gather_contacts() -> str:
     upcoming = conn.execute(
         """SELECT name, tier, next_contact
            FROM contacts
-           WHERE next_contact > ? AND next_contact <= ?
+           WHERE company_id = ?
+             AND next_contact > ? AND next_contact <= ?
            ORDER BY next_contact ASC LIMIT 5""",
-        (today, week_ahead),
+        (company_id, today, week_ahead),
     ).fetchall()
 
     # conn is shared — never close it

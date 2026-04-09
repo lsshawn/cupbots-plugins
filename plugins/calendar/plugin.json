@@ -1,13 +1,28 @@
 {
   "name": "calendar",
   "description": "Calendar management via CalDAV or Google Calendar",
-  "version": "1.2.0",
+  "version": "1.8.0",
   "author": "CupBots",
   "commands": [
     "/cal",
     "/event"
   ],
-  "intent": "Create, view, edit, or delete calendar events, meetings, appointments, huddles. Recurring event schedules.",
+  "write_commands": [
+    "/event"
+  ],
+  "primitives": [
+    "/cal                                       — today's events",
+    "/cal week                                  — next 7 days",
+    "/cal <N>                                   — next N days (e.g. /cal 5)",
+    "/cal <date>                                — events on a date (e.g. /cal 8 apr)",
+    "/cal free [date]                           — free slots",
+    "/event create --title X --start 2026-04-09T14:00 --end 2026-04-09T15:00 [--location L] [--rrule R]",
+    "/event create --title X --start 2026-04-09T14:00 --duration 30m",
+    "/event delete --uid <uid>                  — delete by exact UID (get UID from /event search)",
+    "/event delete --query \"standup\"            — delete by keyword",
+    "/event search --query \"standup\" [--days 30] — list matching events with UIDs"
+  ],
+  "intent": "Create, view, edit, or delete calendar events, meetings, appointments, huddles. Recurring event schedules. Manage availability preferences (no weekends, work hours) and refuse overlapping events.",
   "not_intent": "Sending WhatsApp messages to someone at a scheduled time",
   "config": [
     [
@@ -219,6 +234,6 @@
     "icon": "calendar_month",
     "tagline": "Full calendar management from WhatsApp — CalDAV or Google Calendar",
     "category": "productivity",
-    "long_description": "View your agenda, find free slots, and create events using natural language — all from WhatsApp. Supports CalDAV (Radicale, Nextcloud) and Google Calendar. Recurring events, ICS imports, holiday syncing."
+    "long_description": "View your agenda, find free slots, and create events using natural language — all from WhatsApp. Refuses overlapping events and prompts you to confirm, cancel, or draft a polite reschedule reply. Set availability preferences (no weekends, work hours, blocked days) so the AI agent never offers a time you can't make. Supports CalDAV (Radicale, Nextcloud) and Google Calendar. Recurring events, ICS imports, holiday syncing."
   }
 }

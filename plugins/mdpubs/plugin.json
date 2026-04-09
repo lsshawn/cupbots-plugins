@@ -7,6 +7,9 @@
     "/publish",
     "/published"
   ],
+  "write_commands": [
+    "/publish"
+  ],
   "intent": "Publish markdown notes to mdpubs.com",
   "config": [
     [

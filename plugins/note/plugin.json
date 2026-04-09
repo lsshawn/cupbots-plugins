@@ -7,6 +7,9 @@
     "/note",
     "/notes"
   ],
+  "write_commands": [
+    "/note"
+  ],
   "intent": "Create or search personal notes, quick memos, zettelkasten entries",
   "not_intent": "Bookmarks, ideas, or knowledge base documents",
   "config": [],

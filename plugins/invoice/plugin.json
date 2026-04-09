@@ -8,6 +8,9 @@
     "/invoice list",
     "/invoice status"
   ],
+  "write_commands": [
+    "/invoice"
+  ],
   "intent": "Create Stripe invoices, find or create clients, send invoices with line items",
   "config": [],
   "pip_dependencies": ["stripe"],

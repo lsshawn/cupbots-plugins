@@ -7,8 +7,8 @@
   "intent": "SEO analytics, keyword tracking, content decay, blog drafts, Google Analytics, Umami, traffic reports, SERP rankings",
   "not_intent": "Social media posting, advertising, PPC campaigns",
   "config": [
-    {"key": "google_client_id", "label": "Google OAuth Client ID", "type": "text", "required": false, "help": "For GA4 backend. Create at console.cloud.google.com"},
-    {"key": "google_client_secret", "label": "Google OAuth Client Secret", "type": "secret", "required": false, "help": "For GA4 backend"},
+    {"key": "google_client_id", "label": "Google OAuth Client ID (legacy)", "type": "text", "required": false, "help": "Legacy — OAuth initiation is now hub-brokered. This key is still read by the steady-state GA4/GSC token refresh path and will be removed in a future migration."},
+    {"key": "google_client_secret", "label": "Google OAuth Client Secret (legacy)", "type": "secret", "required": false, "help": "Legacy — see google_client_id help."},
     {"key": "dataforseo_login", "label": "DataForSEO Login", "type": "text", "required": false, "help": "Email for DataForSEO API (keyword tracking)"},
     {"key": "dataforseo_password", "label": "DataForSEO Password", "type": "secret", "required": false, "help": "Password for DataForSEO API"},
     {"key": "notify_chat", "label": "Notification Chat JID", "type": "text", "required": false, "help": "WhatsApp JID for auto-send reports"}
@@ -16,7 +16,8 @@
   "pip_dependencies": [
     "google-analytics-data",
     "google-auth",
-    "google-auth-httplib2"
+    "google-auth-httplib2",
+    "uptime-kuma-api"
   ],
   "free": false,
   "price": "$49",
