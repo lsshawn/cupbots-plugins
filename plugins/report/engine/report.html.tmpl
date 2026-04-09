@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title | default('Report') }} — {{ company_name | default('Company') }}</title>
+  <style>
+    {{ css }}
+  </style>
+</head>
+<body>
+
+{# ====================================================================
+   COVER PAGE — full-bleed hero with client photo
+   ==================================================================== #}
+{% if cover_photo %}
+<section class="hero-cover" style="background-image: url('{{ cover_photo }}');">
+{% else %}
+<section class="hero-cover" style="background-color: var(--dark);">
+{% endif %}
+  <div class="hero-overlay">
+    {% if logo %}<div class="hero-logo"><img src="{{ logo }}" alt="Logo"></div>{% endif %}
+    <h1 class="hero-title">{{ title | default('Report') }}</h1>
+    <div class="hero-subtitle">{{ company_name | default('Company') }}{% if fiscal_year %} &middot; {{ fiscal_year }}{% endif %}</div>
+  </div>
+</section>
+
+{# ====================================================================
+   TABLE OF CONTENTS
+   ==================================================================== #}
+{% if sections %}
+<section class="report-section">
+  <div class="section-title">Contents</div>
+  {% for sec in sections %}
+  <div class="toc-entry toc-entry--h1">
+    <span class="toc-title">{{ sec.title }}</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page"></span>{# Page numbers are rendered by the browser's CSS counters #}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ====================================================================
+   REPORT SECTIONS — each gets a page break via CSS
+   ==================================================================== #}
+{% for sec in sections %}
+
+{# Optional section divider hero — if the section has a divider photo #}
+{% if sec.divider_photo %}
+<section class="hero-divider" style="background-image: url('{{ sec.divider_photo }}');">
+  <div class="hero-overlay">
+    <div class="divider-section-label">Section {{ loop.index }}</div>
+    <div class="divider-title">{{ sec.title }}</div>
+    <div class="divider-accent"></div>
+    {% if sec.intro %}<div class="divider-intro">{{ sec.intro }}</div>{% endif %}
+  </div>
+</section>
+{% endif %}
+
+<section class="report-section">
+  <div class="section-number">Section {{ loop.index }}</div>
+  <div class="section-title">{{ sec.title }}</div>
+
+  {# The section body is pre-rendered HTML from the synthesis step.
+     It uses design-system CSS classes (metric-card, data-table, etc.)
+     and is character-identical to the frozen markdown source.
+     The body is injected verbatim — no Jinja escaping. #}
+  {{ sec.body_html | safe }}
+</section>
+{% endfor %}
+
+{# ====================================================================
+   BACK COVER
+   ==================================================================== #}
+{% if back_cover %}
+<section class="hero-back" style="{% if back_cover_photo %}background-image: url('{{ back_cover_photo }}');{% endif %}">
+  <div class="hero-overlay">
+    {% if logo %}<img src="{{ logo }}" alt="Logo" style="height: 80px; margin-bottom: 32px;">{% endif %}
+    <div style="font-family: var(--font-display); font-size: 48px; margin-bottom: 16px;">{{ company_name }}</div>
+    {{ back_cover | safe }}
+  </div>
+</section>
+{% endif %}
+
+</body>
+</html>

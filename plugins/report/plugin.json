@@ -1,0 +1,52 @@
+{
+  "name": "report",
+  "description": "Generate consultant-grade PDF reports from wiki content or uploaded documents",
+  "version": "0.1.0",
+  "author": "CupBots",
+  "commands": [
+    "/report"
+  ],
+  "write_commands": [
+    "/report"
+  ],
+  "primitives": [
+    "/report create --title X --workspace W [--signatory \"Managing Director\"] [--palette green]",
+    "/report create --title X --file /path/to/source.pdf",
+    "/report create --title X --from-attachment",
+    "/report draft --id <id>                    — synthesise sections from source",
+    "/report build --id <id>                    — render HTML + PDF, register preview",
+    "/report tweak --id <id> --section SEC --instruction \"make it punchier\"",
+    "/report palette --id <id> --primary #2E7D32 --accent #C8A951 --dark #37474F",
+    "/report signatory --id <id> --title \"Group Managing Director\"",
+    "/report status --id <id>",
+    "/report list",
+    "/report preview --id <id>                  — re-emit the hosted preview URL",
+    "/report show --id <id>                     — dump current markdown in chat",
+    "/report archive --id <id>                  — soft-delete (hide from list)",
+    "/report restore --id <id>                  — undo archive",
+    "/report delete --id <id>                   — permanent delete",
+    "/report list [--all]                       — list reports (--all includes archived)"
+  ],
+  "intent": "Create, draft, build, edit, or preview professional consultant-grade reports (sustainability, annual, ESG). Generate PDF from wiki content or uploaded markdown/PDF/DOCX. Tweak sections with plain language. Change brand palette or signatory title.",
+  "not_intent": "Sending documents via email, creating calendar events, editing wiki entities directly",
+  "config": [
+    [["key", "output_dir"], ["label", "Report output directory"], ["type", "text"], ["required", false], ["help", "Default: data/plugins/report/output"]],
+    [["key", "default_palette"], ["label", "Default brand palette name"], ["type", "text"], ["required", false], ["help", "e.g. green, navy, earth. Default: green"]],
+    [["key", "default_signatory_title"], ["label", "Default signatory title"], ["type", "text"], ["required", false], ["help", "e.g. Managing Director, CEO, Chairman"]],
+    [["key", "max_pdf_mb"], ["label", "Max PDF size in MB"], ["type", "text"], ["required", false], ["help", "Default: 25"]]
+  ],
+  "pip_dependencies": [
+    "playwright",
+    "jinja2",
+    "pdfplumber",
+    "python-docx"
+  ],
+  "free": false,
+  "bundled": false,
+  "marketplace": {
+    "icon": "description",
+    "tagline": "Fortune 500-grade PDF reports from WhatsApp — edit with plain language",
+    "category": "productivity",
+    "long_description": "Generate professional, print-ready PDF reports from your wiki content or uploaded documents. Uses CSS Paged Media for pixel-perfect A4 layout with automatic pagination. Tweak sections in plain English, change brand palettes, swap assets. Accepts edits via WhatsApp or email. Hosted preview URL for stakeholder review. Designed for sustainability statements, annual reports, and ESG disclosures at Big 4 consultant quality."
+  }
+}
