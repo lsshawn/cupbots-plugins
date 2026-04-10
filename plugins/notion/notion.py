@@ -57,7 +57,6 @@ def create_tables(conn):
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(company_id, name)
         );
-        CREATE INDEX IF NOT EXISTS idx_sources_company ON notion_sources(company_id);
 
         CREATE TABLE IF NOT EXISTS notion_cache (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +69,14 @@ def create_tables(conn):
             cached_at TEXT NOT NULL DEFAULT (datetime('now')),
             UNIQUE(company_id, source_name, notion_object_id)
         );
+    """)
+    for table in ("notion_sources", "notion_cache"):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN company_id TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_sources_company ON notion_sources(company_id);
         CREATE INDEX IF NOT EXISTS idx_cache_source ON notion_cache(company_id, source_name);
     """)
 

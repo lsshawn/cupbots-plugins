@@ -374,13 +374,12 @@ def _format_event(ev: dict) -> str:
     else:
         start_local = start.astimezone(TZ) if start.tzinfo else start.replace(tzinfo=TZ)
         end_local = end.astimezone(TZ) if end.tzinfo else end.replace(tzinfo=TZ)
-        tz_label = str(TZ).split("/")[-1]
-        time_str = f"{start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')} ({tz_label})"
+        time_str = f"{start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')}"
 
     summary = ev["summary"] or "(no title)"
     location = f" 📍 {ev['location']}" if ev.get("location") else ""
-    url = f"\n  🔗 {ev['url']}" if ev.get("url") else ""
-    return f"• {time_str}  {summary}{location}{url}"
+    url = f"\n    🔗 {ev['url']}" if ev.get("url") else ""
+    return f"🕐 {time_str}  *{summary}*{location}{url}"
 
 
 def _format_date_header(d: date) -> str:
@@ -665,17 +664,16 @@ async def cmd_agenda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         d = ev["start"].date()
         by_date.setdefault(d, []).append(ev)
 
-    lines = [f"📋 *Agenda — next {days} day(s)*\n"]
+    lines = [f"📋 *Agenda — next {days} day(s)*"]
     for d in sorted(by_date):
         day_label = _format_date_header(d)
         if d == now.date():
-            day_label += " (today)"
+            day_label += " _(today)_"
         elif d == now.date() + timedelta(days=1):
-            day_label += " (tomorrow)"
-        lines.append(f"*{day_label}*")
+            day_label += " _(tomorrow)_"
+        lines.append(f"\n*{day_label}*")
         for ev in sorted(by_date[d], key=lambda e: e["start"]):
             lines.append(f"  {_format_event(ev)}")
-        lines.append("")
 
     await update.message.reply_text(
         "\n".join(lines), parse_mode="Markdown", disable_web_page_preview=True
@@ -1589,20 +1587,18 @@ def _build_week_ahead() -> str:
 
 
 def _format_event_plain(ev: dict) -> str:
-    """Format event without emoji for cross-platform."""
+    """Format event for WhatsApp (supports bold markdown)."""
     start = ev["start"]
     end = ev["end"]
     if ev.get("all_day"):
         time_str = "All day"
     else:
-        # Convert to display timezone and show timezone label
         start_local = start.astimezone(TZ) if start.tzinfo else start.replace(tzinfo=TZ)
         end_local = end.astimezone(TZ) if end.tzinfo else end.replace(tzinfo=TZ)
-        tz_label = str(TZ).split("/")[-1]
-        time_str = f"{start_local.strftime('%H:%M')}-{end_local.strftime('%H:%M')} ({tz_label})"
+        time_str = f"{start_local.strftime('%H:%M')}–{end_local.strftime('%H:%M')}"
     summary = ev["summary"] or "(no title)"
-    location = f" @ {ev['location']}" if ev.get("location") else ""
-    return f"  {time_str}  {summary}{location}"
+    location = f"\n    📍 {ev['location']}" if ev.get("location") else ""
+    return f"  🕐 {time_str}  *{summary}*{location}"
 
 
 async def _cal_today(now, reply):
@@ -1629,7 +1625,7 @@ async def _cal_today(now, reply):
     if not events:
         await reply.reply_text("No more events today.")
         return
-    lines = [f"Today -- {_format_date_header(now.date())}\n"]
+    lines = [f"📋 *Today — {_format_date_header(now.date())}*"]
     for ev in sorted(events, key=lambda e: e["start"]):
         lines.append(_format_event_plain(ev))
     await reply.reply_text("\n".join(lines))
@@ -1649,9 +1645,14 @@ async def _cal_agenda(now, days_count, reply):
     for ev in sorted(events, key=lambda e: e["start"]):
         d = ev["start"].date()
         days.setdefault(d, []).append(ev)
-    lines = [f"Agenda ({days_count} days):\n"]
+    lines = [f"📋 *Agenda ({days_count} days)*"]
     for d in sorted(days):
-        lines.append(f"{_format_date_header(d)}:")
+        day_label = _format_date_header(d)
+        if d == now.date():
+            day_label += " _(today)_"
+        elif d == now.date() + timedelta(days=1):
+            day_label += " _(tomorrow)_"
+        lines.append(f"\n*{day_label}*")
         for ev in days[d]:
             lines.append(_format_event_plain(ev))
     await reply.reply_text("\n".join(lines))
@@ -1679,7 +1680,7 @@ async def _cal_day(now, target, reply):
     if not events:
         await reply.reply_text(f"No events on {label} ({_format_date_header(target)}).")
         return
-    lines = [f"{label} -- {_format_date_header(target)}\n"]
+    lines = [f"📋 *{label} — {_format_date_header(target)}*"]
     for ev in sorted(events, key=lambda e: e["start"]):
         lines.append(_format_event_plain(ev))
     await reply.reply_text("\n".join(lines))
@@ -1704,7 +1705,7 @@ async def _cal_next(now, reply):
         hours = delta.seconds // 3600
         mins = (delta.seconds % 3600) // 60
         time_until = f"in {hours}h{mins}m"
-    lines = [f"Next event ({time_until}):", _format_event_plain(ev)]
+    lines = [f"*Next event* ({time_until}):", _format_event_plain(ev)]
     await reply.reply_text("\n".join(lines))
 
 

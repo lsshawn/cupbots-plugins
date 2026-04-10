@@ -91,6 +91,7 @@ def create_tables(conn):
     # Multi-tenant: every row is scoped by (company_id, domain). Two clients
     # can track the same domain string and see separate data. Greenfield —
     # DEFAULT '' means existing rows land in the untenanted bucket.
+    # Create tables (without indexes — indexes go after migration)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS analytics_snapshots (
             id TEXT PRIMARY KEY,
@@ -105,7 +106,6 @@ def create_tables(conn):
             anomalies TEXT DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_snap_company_domain ON analytics_snapshots (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS keywords (
             id TEXT PRIMARY KEY,
@@ -121,7 +121,6 @@ def create_tables(conn):
             checked_at TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_kw_company_domain ON keywords (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS content_scores (
             id TEXT PRIMARY KEY,
@@ -135,7 +134,6 @@ def create_tables(conn):
             flagged INTEGER DEFAULT 0,
             last_checked TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_cs_company_domain ON content_scores (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS drafts (
             id TEXT PRIMARY KEY,
@@ -151,7 +149,6 @@ def create_tables(conn):
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             completed_at TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_draft_company_domain ON drafts (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS actions (
             id TEXT PRIMARY KEY,
@@ -171,8 +168,6 @@ def create_tables(conn):
             done_at TEXT,
             measured_at TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_actions_company_domain ON actions (company_id, domain);
-        CREATE INDEX IF NOT EXISTS idx_actions_status ON actions (company_id, status);
 
         CREATE TABLE IF NOT EXISTS gsc_snapshots (
             id TEXT PRIMARY KEY,
@@ -187,7 +182,6 @@ def create_tables(conn):
             top_pages TEXT DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_gsc_company_domain ON gsc_snapshots (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS backlinks_snapshots (
             id TEXT PRIMARY KEY,
@@ -201,7 +195,6 @@ def create_tables(conn):
             domain_rank INTEGER DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_bl_company_domain ON backlinks_snapshots (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS conversion_insights (
             id TEXT PRIMARY KEY,
@@ -216,7 +209,6 @@ def create_tables(conn):
             recommendation TEXT,
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_ci_company_domain ON conversion_insights (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS web_vitals_snapshots (
             id TEXT PRIMARY KEY,
@@ -231,7 +223,6 @@ def create_tables(conn):
             performance_score INTEGER,
             audited_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_wv_company_domain ON web_vitals_snapshots (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS form_check_runs (
             id TEXT PRIMARY KEY,
@@ -244,7 +235,6 @@ def create_tables(conn):
             response_excerpt TEXT,
             error TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_fc_company_domain ON form_check_runs (company_id, domain);
 
         CREATE TABLE IF NOT EXISTS outreach_drafts (
             id TEXT PRIMARY KEY,
@@ -258,6 +248,30 @@ def create_tables(conn):
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             sent_at TEXT
         );
+    """)
+
+    # Migration: add company_id to tables created before tenant scoping
+    for table in ("analytics_snapshots", "keywords", "content_scores", "drafts",
+                  "actions", "gsc_snapshots", "backlinks_snapshots",
+                  "conversion_insights", "web_vitals_snapshots",
+                  "form_check_runs", "outreach_drafts"):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN company_id TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_snap_company_domain ON analytics_snapshots (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_kw_company_domain ON keywords (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_cs_company_domain ON content_scores (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_draft_company_domain ON drafts (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_actions_company_domain ON actions (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_actions_status ON actions (company_id, status);
+        CREATE INDEX IF NOT EXISTS idx_gsc_company_domain ON gsc_snapshots (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_bl_company_domain ON backlinks_snapshots (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_ci_company_domain ON conversion_insights (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_wv_company_domain ON web_vitals_snapshots (company_id, domain);
+        CREATE INDEX IF NOT EXISTS idx_fc_company_domain ON form_check_runs (company_id, domain);
         CREATE INDEX IF NOT EXISTS idx_od_company_domain ON outreach_drafts (company_id, domain);
     """)
 
@@ -1040,7 +1054,7 @@ async def _job_gsc_pull(payload: dict):
 
 def _wrap_recurring(queue: str, handler):
     """Wrap a job handler so it self-re-enqueues for the next cron run."""
-    async def _wrapped(payload: dict):
+    async def _wrapped(payload: dict, **kwargs):
         try:
             await handler(payload)
         finally:

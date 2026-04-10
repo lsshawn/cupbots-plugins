@@ -915,6 +915,145 @@
         "plugins/remind.py"
       ]
     },
+    "report": {
+      "name": "report",
+      "description": "Generate consultant-grade PDF reports from wiki content or uploaded documents",
+      "version": "0.1.0",
+      "author": "CupBots",
+      "commands": [
+        "/report"
+      ],
+      "write_commands": [
+        "/report"
+      ],
+      "primitives": [
+        "/report create --title X --workspace W [--signatory \"Managing Director\"] [--palette green]",
+        "/report create --title X --file /path/to/source.pdf",
+        "/report create --title X --from-attachment",
+        "/report draft --id <id>                    \u2014 synthesise sections from source",
+        "/report build --id <id>                    \u2014 render HTML + PDF, register preview",
+        "/report tweak --id <id> --section SEC --instruction \"make it punchier\"",
+        "/report palette --id <id> --primary #2E7D32 --accent #C8A951 --dark #37474F",
+        "/report signatory --id <id> --title \"Group Managing Director\"",
+        "/report status --id <id>",
+        "/report list",
+        "/report preview --id <id>                  \u2014 re-emit the hosted preview URL",
+        "/report show --id <id>                     \u2014 dump current markdown in chat",
+        "/report archive --id <id>                  \u2014 soft-delete (hide from list)",
+        "/report restore --id <id>                  \u2014 undo archive",
+        "/report delete --id <id>                   \u2014 permanent delete",
+        "/report list [--all]                       \u2014 list reports (--all includes archived)"
+      ],
+      "intent": "Create, draft, build, edit, or preview professional consultant-grade reports (sustainability, annual, ESG). Generate PDF from wiki content or uploaded markdown/PDF/DOCX. Tweak sections with plain language. Change brand palette or signatory title.",
+      "not_intent": "Sending documents via email, creating calendar events, editing wiki entities directly",
+      "config": [
+        [
+          [
+            "key",
+            "output_dir"
+          ],
+          [
+            "label",
+            "Report output directory"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Default: data/plugins/report/output"
+          ]
+        ],
+        [
+          [
+            "key",
+            "default_palette"
+          ],
+          [
+            "label",
+            "Default brand palette name"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "e.g. green, navy, earth. Default: green"
+          ]
+        ],
+        [
+          [
+            "key",
+            "default_signatory_title"
+          ],
+          [
+            "label",
+            "Default signatory title"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "e.g. Managing Director, CEO, Chairman"
+          ]
+        ],
+        [
+          [
+            "key",
+            "max_pdf_mb"
+          ],
+          [
+            "label",
+            "Max PDF size in MB"
+          ],
+          [
+            "type",
+            "text"
+          ],
+          [
+            "required",
+            false
+          ],
+          [
+            "help",
+            "Default: 25"
+          ]
+        ]
+      ],
+      "pip_dependencies": [
+        "playwright",
+        "jinja2",
+        "pdfplumber",
+        "python-docx"
+      ],
+      "free": false,
+      "bundled": false,
+      "marketplace": {
+        "icon": "description",
+        "tagline": "Fortune 500-grade PDF reports from WhatsApp \u2014 edit with plain language",
+        "category": "productivity",
+        "long_description": "Generate professional, print-ready PDF reports from your wiki content or uploaded documents. Uses CSS Paged Media for pixel-perfect A4 layout with automatic pagination. Tweak sections in plain English, change brand palettes, swap assets. Accepts edits via WhatsApp or email. Hosted preview URL for stakeholder review. Designed for sustainability statements, annual reports, and ESG disclosures at Big 4 consultant quality."
+      },
+      "files": [
+        "plugins/report.py"
+      ]
+    },
     "search": {
       "name": "search",
       "description": "Multi-platform research across Reddit, YouTube, and X",
@@ -1040,6 +1179,54 @@
       },
       "files": [
         "plugins/stripe.py"
+      ]
+    },
+    "task": {
+      "name": "task",
+      "description": "Basecamp-style task management from WhatsApp \u2014 flat lists, custom statuses, hill charts, change log, automatic check-ins",
+      "version": "0.2.0",
+      "author": "CupBots",
+      "commands": [
+        "/task",
+        "/task add",
+        "/task list",
+        "/task done",
+        "/task drop",
+        "/task status",
+        "/task hill",
+        "/task mine",
+        "/task assign",
+        "/task scope",
+        "/task scopes",
+        "/task members",
+        "/task history",
+        "/task changes",
+        "/task board",
+        "/task checkin",
+        "/tasks"
+      ],
+      "write_commands": [
+        "/task"
+      ],
+      "intent": "Create tasks, mark tasks done/dropped, change task status, assign tasks, update hill progress, manage scopes/projects, view task history and board",
+      "not_intent": "Reminders (use /remind), calendar events (use /event), bookmarks, notes",
+      "config": [
+        {
+          "key": "statuses",
+          "label": "Comma-separated task statuses, last one is terminal (default: not now,maybe,doing,done)"
+        }
+      ],
+      "pip_dependencies": [],
+      "free": true,
+      "bundled": true,
+      "marketplace": {
+        "icon": "task_alt",
+        "tagline": "Flat task lists with hill charts \u2014 Basecamp in your chat",
+        "category": "productivity",
+        "long_description": "Manage tasks without leaving WhatsApp. Basecamp-inspired: flat lists (no epics/stories), custom statuses (not now/maybe/doing/done), hill charts (figuring-out vs making-it-happen), full change log, automatic daily check-ins, scope hammering nudges, and a private kanban board view. Works for devs and non-devs \u2014 just send a message."
+      },
+      "files": [
+        "plugins/task.py"
       ]
     },
     "upload": {

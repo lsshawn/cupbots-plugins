@@ -47,6 +47,12 @@ def create_tables(conn):
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+    """)
+    try:
+        conn.execute("ALTER TABLE sites ADD COLUMN company_id TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass
+    conn.executescript("""
         CREATE INDEX IF NOT EXISTS idx_sites_company ON sites (company_id);
         CREATE INDEX IF NOT EXISTS idx_sites_slug ON sites (company_id, site_slug);
     """)

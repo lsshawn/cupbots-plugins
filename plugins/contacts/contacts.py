@@ -61,9 +61,6 @@ def create_tables(conn):
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts (company_id);
-        CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts (company_id, name);
-        CREATE INDEX IF NOT EXISTS idx_contacts_tier ON contacts (company_id, tier);
 
         CREATE TABLE IF NOT EXISTS interactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,6 +70,20 @@ def create_tables(conn):
             summary TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+    """)
+
+    # Migration: add company_id to tables created before tenant scoping
+    for table in ("contacts", "interactions"):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN company_id TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass  # already exists
+
+    # Indexes (after migration so company_id column is guaranteed to exist)
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts (company_id);
+        CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts (company_id, name);
+        CREATE INDEX IF NOT EXISTS idx_contacts_tier ON contacts (company_id, tier);
         CREATE INDEX IF NOT EXISTS idx_interactions_company ON interactions (company_id, contact_id);
     """)
 

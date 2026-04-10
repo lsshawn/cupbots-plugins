@@ -1,0 +1,45 @@
+{
+  "name": "task",
+  "description": "Basecamp-style task management from WhatsApp — flat lists, custom statuses, hill charts, change log, automatic check-ins",
+  "version": "0.2.0",
+  "author": "CupBots",
+  "commands": [
+    "/task",
+    "/task add",
+    "/task list",
+    "/task done",
+    "/task drop",
+    "/task status",
+    "/task hill",
+    "/task mine",
+    "/task assign",
+    "/task scope",
+    "/task scopes",
+    "/task members",
+    "/task history",
+    "/task changes",
+    "/task board",
+    "/task checkin",
+    "/tasks"
+  ],
+  "write_commands": [
+    "/task"
+  ],
+  "intent": "Create tasks, mark tasks done/dropped, change task status, assign tasks, update hill progress, manage scopes/projects, view task history and board",
+  "not_intent": "Reminders (use /remind), calendar events (use /event), bookmarks, notes",
+  "config": [
+    {
+      "key": "statuses",
+      "label": "Comma-separated task statuses, last one is terminal (default: not now,maybe,doing,done)"
+    }
+  ],
+  "pip_dependencies": [],
+  "free": true,
+  "bundled": true,
+  "marketplace": {
+    "icon": "task_alt",
+    "tagline": "Flat task lists with hill charts — Basecamp in your chat",
+    "category": "productivity",
+    "long_description": "Manage tasks without leaving WhatsApp. Basecamp-inspired: flat lists (no epics/stories), custom statuses (not now/maybe/doing/done), hill charts (figuring-out vs making-it-happen), full change log, automatic daily check-ins, scope hammering nudges, and a private kanban board view. Works for devs and non-devs — just send a message."
+  }
+}

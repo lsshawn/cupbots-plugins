@@ -44,6 +44,13 @@ def create_tables(conn):
             intent TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (company_id, sender_id)
         );
+    """)
+    # Migration: add company_id to tables created before tenant scoping
+    try:
+        conn.execute("ALTER TABLE dm_contacts ADD COLUMN company_id TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass
+    conn.executescript("""
         CREATE INDEX IF NOT EXISTS idx_dm_contacts_company ON dm_contacts (company_id);
     """)
 
