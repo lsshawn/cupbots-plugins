@@ -25,7 +25,8 @@
     "/report archive --id <id>                  — soft-delete (hide from list)",
     "/report restore --id <id>                  — undo archive",
     "/report delete --id <id>                   — permanent delete",
-    "/report list [--all]                       — list reports (--all includes archived)"
+    "/report list [--all]                       — list reports (--all includes archived)",
+    "/report demo                               — build a pre-made demo instantly (no AI)"
   ],
   "intent": "Create, draft, build, edit, or preview professional consultant-grade reports (sustainability, annual, ESG). Generate PDF from wiki content or uploaded markdown/PDF/DOCX. Tweak sections with plain language. Change brand palette or signatory title.",
   "not_intent": "Sending documents via email, creating calendar events, editing wiki entities directly",

@@ -19,6 +19,7 @@ Commands:
   /report delete --id <id>          — permanent delete
   /report list                      — active reports
   /report list --all                — include archived
+  /report demo                      — build a pre-made demo report instantly (no AI)
 
 Examples:
   /report create --title "Sustainability Statement FYE 2025" --workspace acmeco
@@ -832,6 +833,170 @@ async def _send_agentmail_reply(to: str, subject: str, body: str, in_reply_to: s
         log.warning("Failed to send AgentMail reply: %s", e)
 
 
+# ---------------------------------------------------------------------------
+# Demo
+# ---------------------------------------------------------------------------
+
+DEMO_REPORT_TITLE = "__demo__"
+
+
+async def _handle_demo(msg, reply, company_id: str) -> bool:
+    """Build and serve a demo report — no LLM, no wiki, instant."""
+    from .engine.demo import build_demo_spec
+    from .engine.pipeline import build_report
+
+    await reply.reply_text("Building demo report...")
+
+    # Check if a demo already exists for this company
+    row = _db().execute(
+        "SELECT id FROM reports WHERE company_id = ? AND title = ? AND archived = 0",
+        (company_id, DEMO_REPORT_TITLE),
+    ).fetchone()
+
+    if row:
+        demo_id = row["id"]
+    else:
+        # Create the demo report record
+        _db().execute(
+            "INSERT INTO reports (company_id, user_id, title, input_mode, status) "
+            "VALUES (?, ?, ?, 'demo', 'building')",
+            (company_id, msg.sender_id, DEMO_REPORT_TITLE),
+        )
+        _db().commit()
+        new_row = _db().execute("SELECT last_insert_rowid() as id").fetchone()
+        demo_id = new_row["id"]
+
+    out = _output_dir(demo_id)
+    spec = build_demo_spec(output_dir=str(out))
+
+    try:
+        result = await build_report(spec)
+    except Exception as e:
+        log.exception("Demo build failed")
+        await reply.reply_text(f"Demo build failed: {e}")
+        return True
+
+    # Store sections so they can be edited via /report tweak
+    sections_json = json.dumps(
+        {s.title: s.body_html for s in spec.sections}, ensure_ascii=False
+    )
+    _update_report(
+        demo_id, company_id,
+        status="built",
+        sections_json=sections_json,
+        html_path=str(result.html_path),
+        pdf_path=str(result.pdf_path),
+        palette_json=json.dumps({
+            "primary": spec.primary,
+            "accent": spec.accent,
+            "dark": spec.dark,
+        }),
+    )
+
+    # Register preview with hub
+    preview_url = ""
+    try:
+        from cupbots.helpers.hub import is_connected, register_report_preview
+        if is_connected():
+            pdf_bytes = result.pdf_path.read_bytes()
+            html_str = result.html_path.read_text(encoding="utf-8")
+            token = await register_report_preview(
+                report_id=demo_id,
+                pdf_bytes=pdf_bytes,
+                html_str=html_str,
+                title="Meridian Group — Sustainability Statement FYE 2025 (Demo)",
+            )
+            if token:
+                _update_report(demo_id, company_id, preview_token=token)
+                preview_url = f"https://hub.cupbots.dev/r/{token}"
+    except Exception as e:
+        log.warning("Failed to register demo preview: %s", e)
+
+    pages = result.page_count or "?"
+    size_kb = result.pdf_path.stat().st_size / 1024
+
+    lines = [
+        f"*Demo Report Built* (#{demo_id})",
+        f"Pages: {pages} | PDF: {size_kb:.0f} KB",
+        "",
+        "This is a pre-built demo — no AI, no wiki. Try editing it:",
+        f"  `/report tweak --id {demo_id} --section environment --instruction \"shorten by 50%\"`",
+        f"  `/report palette --id {demo_id} --primary #1F4E79`",
+        f"  `/report build --id {demo_id}` to regenerate",
+    ]
+    if preview_url:
+        lines.insert(2, f"Preview: {preview_url}")
+        lines.append(f"\nOr open the preview and click 'Request Edit'.")
+
+    await reply.reply_text("\n".join(lines))
+
+    # Send PDF
+    try:
+        await reply.reply_document(
+            file_path=str(result.pdf_path),
+            file_name="Meridian_Group_Sustainability_FYE2025_Demo.pdf",
+            mimetype="application/pdf",
+        )
+    except Exception as e:
+        log.warning("Failed to send demo PDF: %s", e)
+
+    return True
+
+
+async def _reset_demo(company_id: str = ""):
+    """Reset the demo report back to original content. Called by scheduler."""
+    row = _db().execute(
+        "SELECT id FROM reports WHERE company_id = ? AND title = ? AND archived = 0",
+        (company_id, DEMO_REPORT_TITLE),
+    ).fetchone()
+    if not row:
+        return
+
+    from .engine.demo import build_demo_spec
+    from .engine.pipeline import build_report
+
+    demo_id = row["id"]
+    out = _output_dir(demo_id)
+    spec = build_demo_spec(output_dir=str(out))
+
+    sections_json = json.dumps(
+        {s.title: s.body_html for s in spec.sections}, ensure_ascii=False
+    )
+    _update_report(
+        demo_id, company_id,
+        status="draft",
+        sections_json=sections_json,
+        palette_json=json.dumps({
+            "primary": spec.primary,
+            "accent": spec.accent,
+            "dark": spec.dark,
+        }),
+    )
+
+    try:
+        result = await build_report(spec)
+        _update_report(
+            demo_id, company_id,
+            status="built",
+            html_path=str(result.html_path),
+            pdf_path=str(result.pdf_path),
+        )
+
+        # Re-register preview
+        from cupbots.helpers.hub import is_connected, register_report_preview
+        if is_connected():
+            token = await register_report_preview(
+                report_id=demo_id,
+                pdf_bytes=result.pdf_path.read_bytes(),
+                html_str=result.html_path.read_text(encoding="utf-8"),
+                title="Meridian Group — Sustainability Statement FYE 2025 (Demo)",
+            )
+            if token:
+                _update_report(demo_id, company_id, preview_token=token)
+    except Exception as e:
+        log.warning("Demo reset failed: %s", e)
+
+
 # Subscribe to email events at module load
 subscribe("email.received", _on_report_edit_email, plugin_name=PLUGIN_NAME)
 
@@ -860,6 +1025,10 @@ async def handle_command(msg, reply) -> bool:
 
     action = msg.args[0].lower()
     company_id = msg.company_id or ""
+
+    # --- /report demo ---
+    if action == "demo":
+        return await _handle_demo(msg, reply, company_id)
 
     # --- /report list ---
     if action == "list":
