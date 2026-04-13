@@ -35,7 +35,16 @@ import json
 import logging
 import shlex
 import sqlite3
+import sys
 from pathlib import Path
+
+# Make the engine/ subpackage importable as "engine.*"
+# The plugin loader registers us as "plugins.report" (a flat module, not a package),
+# so relative imports don't work. Adding our directory to sys.path lets us do
+# "from engine.pipeline import ..." as an absolute import.
+_PLUGIN_DIR = str(Path(__file__).resolve().parent)
+if _PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, _PLUGIN_DIR)
 
 from cupbots.helpers.db import get_plugin_db, resolve_plugin_setting
 from cupbots.helpers.events import subscribe
@@ -331,7 +340,7 @@ async def _draft_from_file(report: dict, reply) -> dict:
         await reply.reply_text("No source file path recorded. Use --file or --from-attachment.")
         return {}
 
-    from .engine.extract import extract_text
+    from engine.extract import extract_text
 
     try:
         raw_text = extract_text(source_path)
@@ -393,7 +402,7 @@ async def _build_report(report: dict, reply) -> bool:
 
     await reply.reply_text("Building report...")
 
-    from .engine.pipeline import ReportSpec, SectionSpec, build_report
+    from engine.pipeline import ReportSpec, SectionSpec, build_report
 
     spec = ReportSpec(
         title=report["title"],
@@ -420,7 +429,7 @@ async def _build_report(report: dict, reply) -> bool:
         return False
 
     # Run QC
-    from .engine.qc import full_audit
+    from engine.qc import full_audit
 
     html_content = result.html_path.read_text(encoding="utf-8")
     source_text = " ".join(sections.values())
@@ -732,7 +741,7 @@ async def _handle_email_edit_job(payload: dict, bot=None):
     _db().commit()
 
     # Auto-rebuild
-    from .engine.pipeline import ReportSpec, SectionSpec, build_report
+    from engine.pipeline import ReportSpec, SectionSpec, build_report
 
     palette = json.loads(report.get("palette_json", "{}")) or PALETTES["green"]
     out = _output_dir(report_id)
@@ -842,8 +851,8 @@ DEMO_REPORT_TITLE = "__demo__"
 
 async def _handle_demo(msg, reply, company_id: str) -> bool:
     """Build and serve a demo report — no LLM, no wiki, instant."""
-    from .engine.demo import build_demo_spec
-    from .engine.pipeline import build_report
+    from engine.demo import build_demo_spec
+    from engine.pipeline import build_report
 
     await reply.reply_text("Building demo report...")
 
@@ -952,8 +961,8 @@ async def _reset_demo(company_id: str = ""):
     if not row:
         return
 
-    from .engine.demo import build_demo_spec
-    from .engine.pipeline import build_report
+    from engine.demo import build_demo_spec
+    from engine.pipeline import build_report
 
     demo_id = row["id"]
     out = _output_dir(demo_id)
