@@ -12,7 +12,7 @@ PLUGINS_DIR = REGISTRY_DIR / "plugins"
 
 
 def build():
-    registry = {"version": 1, "api": "https://api.cupbots.dev", "plugins": {}}
+    registry = {"version": 1, "api": "https://api.cupbots.com", "plugins": {}}
 
     for plugin_dir in sorted(PLUGINS_DIR.iterdir()):
         if not plugin_dir.is_dir():

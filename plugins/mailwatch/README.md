@@ -35,7 +35,7 @@ Flow: `AgentMail -> POST /webhooks/agentmail/:botId -> Hub -> WebSocket -> Bot -
 
 Setup:
 1. Set `agentmail_webhook_secret` in plugin config (Svix signing secret from AgentMail dashboard, starts with `whsec_`)
-2. In AgentMail, set webhook URL to `https://hub.cupbots.dev/webhooks/agentmail/<your-bot-id>`
+2. In AgentMail, set webhook URL to `https://hub.cupbots.com/webhooks/agentmail/<your-bot-id>`
 
 ### Outbound (AgentMail)
 

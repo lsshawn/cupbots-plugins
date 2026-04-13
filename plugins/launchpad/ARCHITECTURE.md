@@ -58,7 +58,7 @@ Create a new landing page.
   "slug": "brooklyn-coffee",
   "url": "https://brooklyn-coffee.cupbots.pages.dev",
   "status": "live",
-  "analytics_url": "https://umami.cupbots.dev/share/brooklyn-coffee"
+  "analytics_url": "https://umami.cupbots.com/share/brooklyn-coffee"
 }
 ```
 
@@ -89,7 +89,7 @@ Get site status and analytics.
   "slug": "brooklyn-coffee",
   "url": "https://brooklyn-coffee.cupbots.pages.dev",
   "status": "live",
-  "analytics_url": "https://umami.cupbots.dev/share/brooklyn-coffee",
+  "analytics_url": "https://umami.cupbots.com/share/brooklyn-coffee",
   "custom_domain": null,
   "created_at": "2025-04-04T01:00:00Z",
   "updated_at": "2025-04-04T01:05:00Z"

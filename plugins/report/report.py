@@ -472,7 +472,7 @@ async def _build_report(report: dict, reply) -> bool:
             )
             if token:
                 _update_report(report_id, company_id, preview_token=token)
-                preview_url = f"https://hub.cupbots.dev/r/{token}"
+                preview_url = f"https://hub.cupbots.com/r/{token}"
     except Exception as e:
         log.warning("Failed to register preview: %s", e)
 
@@ -778,7 +778,7 @@ async def _handle_email_edit_job(payload: dict, bot=None):
                 )
                 if token:
                     _update_report(report_id, company_id, preview_token=token)
-                    preview_url = f"https://hub.cupbots.dev/r/{token}"
+                    preview_url = f"https://hub.cupbots.com/r/{token}"
         except Exception as e:
             log.warning("Failed to register preview after email edit: %s", e)
 
@@ -917,7 +917,7 @@ async def _handle_demo(msg, reply, company_id: str) -> bool:
             )
             if token:
                 _update_report(demo_id, company_id, preview_token=token)
-                preview_url = f"https://hub.cupbots.dev/r/{token}"
+                preview_url = f"https://hub.cupbots.com/r/{token}"
     except Exception as e:
         log.warning("Failed to register demo preview: %s", e)
 
@@ -1240,7 +1240,7 @@ async def handle_command(msg, reply) -> bool:
     if action == "preview":
         token = report.get("preview_token")
         if token:
-            await reply.reply_text(f"Preview: https://hub.cupbots.dev/r/{token}")
+            await reply.reply_text(f"Preview: https://hub.cupbots.com/r/{token}")
         else:
             await reply.reply_text(
                 "No preview available. Build the report first with "

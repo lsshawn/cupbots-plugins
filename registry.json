@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "api": "https://api.cupbots.dev",
+  "api": "https://api.cupbots.com",
   "plugins": {
     "bookmarks": {
       "name": "bookmarks",

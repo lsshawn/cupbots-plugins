@@ -625,7 +625,7 @@ async def _push_board(company_id: str, reply) -> str | None:
         title=title,
     )
     if token:
-        return f"https://hub.cupbots.dev/b/{token}"
+        return f"https://hub.cupbots.com/b/{token}"
     return None
 
 
