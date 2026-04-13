@@ -1,0 +1,18 @@
+{
+  "name": "finance_fire",
+  "version": "1.0.0",
+  "description": "Financial Independence tracking.",
+  "commands": [
+    "/money"
+  ],
+  "primitives": [
+    "/money \u2014 Master dashboard (FIRE + tiers + allocation + actions)",
+    "/money fire \u2014 Detailed FIRE dashboard",
+    "/money balances \u2014 All balances by custodian",
+    "/money tiers \u2014 Cash tier breakdown",
+    "/money budget \u2014 Expense budget with FIRE multipliers",
+    "/money growth \u2014 Monthly net worth growth chart",
+    "/money scenarios \u2014 FIRE what-if scenarios",
+    "/money networth \u2014 Net worth (both ledgers)"
+  ]
+}

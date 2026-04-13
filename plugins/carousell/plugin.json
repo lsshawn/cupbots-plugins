@@ -1,0 +1,15 @@
+{
+  "name": "carousell",
+  "version": "1.0.0",
+  "description": "Search & track deals on Carousell MY/SG.",
+  "commands": [
+    "/carousell"
+  ],
+  "primitives": [
+    "/carousell <query> \u2014 Search Carousell for listings (best match)",
+    "/carousell track <query> \u2014 Add keyword to daily price alerts",
+    "/carousell untrack <query> \u2014 Remove keyword from daily alerts",
+    "/carousell list \u2014 Show tracked keywords",
+    "/carousell recent <query> \u2014 Search by most recent (instead of best match)"
+  ]
+}

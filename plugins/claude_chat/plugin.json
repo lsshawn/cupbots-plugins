@@ -1,0 +1,22 @@
+{
+  "name": "claude_chat",
+  "version": "1.0.0",
+  "description": "Claude AI",
+  "commands": [
+    "/new",
+    "/haiku",
+    "/sonnet",
+    "/opus",
+    "/roast",
+    "/image"
+  ],
+  "primitives": [
+    "/new \u2014 Start a fresh Claude session",
+    "/haiku \u2014 Switch to Haiku (fast, cheap)",
+    "/sonnet \u2014 Switch to Sonnet (balanced)",
+    "/opus \u2014 Switch to Opus (most capable)",
+    "/roast <idea or plan> \u2014 Devil's advocate / indie hacker coach roast",
+    "/image <prompt> \u2014 Generate image (flash)",
+    "/image pro <prompt> \u2014 Generate image (pro, higher quality)"
+  ]
+}

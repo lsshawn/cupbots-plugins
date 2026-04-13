@@ -1,0 +1,27 @@
+{
+  "name": "baby_tracker",
+  "version": "1.0.0",
+  "description": "Baby Tracker",
+  "commands": [
+    "/feed",
+    "/sleep",
+    "/diaper",
+    "/milestone",
+    "/stats",
+    "/analyze",
+    "/ask",
+    "/undo",
+    "/baby"
+  ],
+  "primitives": [
+    "/feed <ml|left|right|pump> \u2014 Log feeding",
+    "/sleep \u2014 Toggle sleep start/stop",
+    "/diaper <wet|poop|both> \u2014 Log diaper",
+    "/milestone <text> \u2014 Log milestone",
+    "/stats \u2014 Today's summary",
+    "/analyze [days] \u2014 Chart for N days",
+    "/ask <question> \u2014 Ask Claude Code (continues session)",
+    "/undo \u2014 Delete last entry",
+    "/baby \u2014 Show baby commands"
+  ]
+}

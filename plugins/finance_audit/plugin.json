@@ -1,0 +1,15 @@
+{
+  "name": "finance_audit",
+  "version": "1.0.0",
+  "description": "Auditing and reconciliation tools.",
+  "commands": [
+    "/reconcile",
+    "/trial",
+    "/duplicates"
+  ],
+  "primitives": [
+    "/reconcile [personal] <account> <balance> <currency> \u2014 Compare book vs expected",
+    "/trial [personal] [date] \u2014 Trial balance",
+    "/duplicates [personal] \u2014 Scan for duplicate entries"
+  ]
+}

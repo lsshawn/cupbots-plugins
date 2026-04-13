@@ -1,0 +1,16 @@
+{
+  "name": "finance",
+  "version": "1.0.0",
+  "description": "Beancount journal recording",
+  "commands": [
+    "/finance"
+  ],
+  "primitives": [
+    "/finance [cupbots|personal] [income|expenses] \u2014 Scan & process unprocessed invoices",
+    "/finance expense [personal] <desc> \u2014 Add expense (attach receipt)",
+    "/finance income [personal] <desc> \u2014 Record income (attach invoice)",
+    "/finance transfer [personal] <desc> \u2014 Inter-account transfer",
+    "/finance ar [personal] <desc> \u2014 Record invoice sent (AR entry)",
+    "/finance payment [personal] <desc> \u2014 Record payment received (clear AR)"
+  ]
+}

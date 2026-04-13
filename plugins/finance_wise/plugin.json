@@ -1,0 +1,14 @@
+{
+  "name": "finance_wise",
+  "version": "1.0.0",
+  "description": "Wise account queries.",
+  "commands": [
+    "/wise"
+  ],
+  "primitives": [
+    "/wise [personal|cupbots] [period] \u2014 Show balances + recent transactions",
+    "/wise balances [personal|cupbots] \u2014 Show balances only",
+    "/wise txns [personal|cupbots] [period] \u2014 Show transactions",
+    "/wise ask [personal|cupbots] <question> \u2014 AI-powered Wise account query"
+  ]
+}

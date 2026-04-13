@@ -1,0 +1,17 @@
+{
+  "name": "devops",
+  "version": "1.0.0",
+  "description": "Run and monitor data pipelines.",
+  "commands": [
+    "/devops"
+  ],
+  "primitives": [
+    "/devops \u2014 Show help",
+    "/devops run <pipeline> [args] \u2014 Run a pipeline (reddit, x, youtube)",
+    "/devops status \u2014 Check if pipelines ran today",
+    "/devops schedule \u2014 Show scheduled pipeline times",
+    "/devops logs [N] [error|warning] \u2014 Recent error/warning logs",
+    "/devops run reddit \u2014 skip-scrape",
+    "/devops run youtube \u2014 limit 3"
+  ]
+}

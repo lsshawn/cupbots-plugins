@@ -1,0 +1,27 @@
+{
+  "name": "finance_reports",
+  "version": "1.0.0",
+  "description": "Beancount financial reports.",
+  "commands": [
+    "/pnl",
+    "/bs",
+    "/cashflow",
+    "/fxgain",
+    "/receivables",
+    "/payables",
+    "/annualreport",
+    "/taxrelief",
+    "/taxsummary"
+  ],
+  "primitives": [
+    "/pnl [personal] [period] \u2014 Profit & Loss (jan, q1, ytd, last-3m, 2025, 2025-03...)",
+    "/bs [personal] [date] \u2014 Balance Sheet",
+    "/cashflow [personal] [period] \u2014 Cash flow summary (same periods as /pnl)",
+    "/fxgain [personal] [date] \u2014 FX gain/loss report",
+    "/receivables \u2014 Outstanding receivables",
+    "/payables [personal] \u2014 Outstanding liabilities",
+    "/annualreport [personal] [year] \u2014 Annual report (balance sheet + P&L)",
+    "/taxrelief [year] \u2014 Malaysian tax relief summary (personal ledger, LHDN)",
+    "/taxsummary [year] \u2014 Full income tax summary for BE form filing (personal)"
+  ]
+}

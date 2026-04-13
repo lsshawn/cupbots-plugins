@@ -9,7 +9,8 @@ Each plugin is a self-contained directory under `plugins/`:
 ```
 plugins/<name>/
 ├── <name>.py           # Plugin code (required)
-└── plugin.json         # Metadata (required)
+├── plugin.json         # Metadata (required)
+└── SKILL.md            # Agent-facing docs (required) — read on demand by AI agent
 ```
 
 ## Key Rules
@@ -22,6 +23,7 @@ plugins/<name>/
 - Plugin code uses `from cupbots.helpers.X import Y` imports
 - For LLM calls, use `ask_llm()` (provider-agnostic, reads `ai.api_provider` config). Do NOT use `run_claude_cli()` for simple parsing — it's 10-100x more expensive
 - Third-party pip packages must be declared in `plugin.json` → `"pip_dependencies": ["pkg"]`
+- Every plugin MUST have a `SKILL.md` with exact command syntax, examples, and rules. The AI agent reads this on demand before calling commands (progressive disclosure). Generate seed files: `python scripts/generate_skill_md.py`
 - After changing any `plugin.json`, run `python3 scripts/build_registry.py`
 - Never edit `registry.json` manually — it's auto-generated
 

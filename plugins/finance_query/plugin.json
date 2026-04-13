@@ -1,0 +1,17 @@
+{
+  "name": "finance_query",
+  "version": "1.0.0",
+  "description": "Beancount ledger queries.",
+  "commands": [
+    "/fbal",
+    "/fsearch",
+    "/fquery",
+    "/faccount"
+  ],
+  "primitives": [
+    "/fbal [personal] [filter] \u2014 Show account balances",
+    "/fsearch [personal] <query> \u2014 AI-powered journal search",
+    "/fquery [personal] <BQL> \u2014 Run raw BQL query",
+    "/faccount [personal] [filter] \u2014 List chart of accounts"
+  ]
+}

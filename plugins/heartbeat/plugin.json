@@ -1,0 +1,15 @@
+{
+  "name": "heartbeat",
+  "version": "1.0.0",
+  "description": "Heartbeat Agent",
+  "commands": [
+    "/think",
+    "/heartbeat",
+    "/snapshot"
+  ],
+  "primitives": [
+    "/think [question] \u2014 Run the agent now (optional: ask it something specific)",
+    "/heartbeat \u2014 Show when the next heartbeat runs",
+    "/snapshot \u2014 Record net worth snapshot now (auto-runs 1st of month)"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "finance_maintenance",
+  "version": "1.0.0",
+  "description": "Journal maintenance tools.",
+  "commands": [
+    "/validate",
+    "/fxsync",
+    "/void",
+    "/edit",
+    "/summary"
+  ],
+  "primitives": [
+    "/validate [personal] \u2014 Run bean-check",
+    "/fxsync \u2014 Fetch missing FX rates",
+    "/void [personal] <search> \u2014 Void an entry (reversing entry)",
+    "/edit [personal] <search> \u2014 Edit entry with LLM assistance",
+    "/summary [personal] \u2014 Regenerate journal summary"
+  ]
+}
