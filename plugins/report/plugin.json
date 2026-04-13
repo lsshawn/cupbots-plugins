@@ -4,7 +4,12 @@
   "version": "0.1.0",
   "author": "CupBots",
   "commands": [
-    "/report"
+    "/report",
+    "/report demo",
+    "/report list",
+    "/report status",
+    "/report show",
+    "/report preview"
   ],
   "write_commands": [
     "/report"
