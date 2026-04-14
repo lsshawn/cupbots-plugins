@@ -261,24 +261,29 @@ def check_availability(dtstart: datetime, dtend: datetime, avail: dict | None = 
     start_local = dtstart.astimezone(TZ) if dtstart.tzinfo else dtstart.replace(tzinfo=TZ)
     end_local = dtend.astimezone(TZ) if dtend.tzinfo else dtend.replace(tzinfo=TZ)
 
-    if avail.get("no_weekends") and start_local.weekday() >= 5:
+    # All-day / multi-day events (midnight-to-midnight or spanning days) skip
+    # work-hour and weekend checks — trips, vacations, etc. are always OK.
+    is_allday = (
+        (end_local.date() != start_local.date())
+        and start_local.hour == 0 and start_local.minute == 0
+    )
+
+    if not is_allday and avail.get("no_weekends") and start_local.weekday() >= 5:
         reasons.append(f"falls on a weekend ({start_local.strftime('%A')})")
 
-    ws = _parse_hhmm(str(avail.get("work_start", "00:00"))) or (0, 0)
-    we = _parse_hhmm(str(avail.get("work_end", "23:59"))) or (23, 59)
-    work_start_min = ws[0] * 60 + ws[1]
-    work_end_min = we[0] * 60 + we[1]
+    if not is_allday:
+        ws = _parse_hhmm(str(avail.get("work_start", "00:00"))) or (0, 0)
+        we = _parse_hhmm(str(avail.get("work_end", "23:59"))) or (23, 59)
+        work_start_min = ws[0] * 60 + ws[1]
+        work_end_min = we[0] * 60 + we[1]
 
-    start_min = start_local.hour * 60 + start_local.minute
-    end_min = end_local.hour * 60 + end_local.minute
-    # Multi-day events: only check the start-day boundary
-    if end_local.date() != start_local.date():
-        end_min = 24 * 60
+        start_min = start_local.hour * 60 + start_local.minute
+        end_min = end_local.hour * 60 + end_local.minute
 
-    if start_min < work_start_min:
-        reasons.append(f"starts before work hours ({avail['work_start']})")
-    if end_min > work_end_min:
-        reasons.append(f"ends after work hours ({avail['work_end']})")
+        if start_min < work_start_min:
+            reasons.append(f"starts before work hours ({avail['work_start']})")
+        if end_min > work_end_min:
+            reasons.append(f"ends after work hours ({avail['work_end']})")
 
     blocked = _expand_blocked_days(avail.get("blocked_days"))
     if start_local.date().isoformat() in blocked:
@@ -2224,9 +2229,14 @@ async def _handle_event_create_primitive(msg, reply, flags: dict) -> bool:
             "raw": msg.text,
         })
         tz_label = str(TZ).split("/")[-1]
+        is_multiday = dtend.date() != dtstart.date() and dtstart.hour == 0 and dtstart.minute == 0
+        if is_multiday:
+            time_str = f"{dtstart.strftime('%a %d %b')}–{dtend.strftime('%a %d %b')} ({tz_label})"
+        else:
+            time_str = f"{dtstart.strftime('%a %d %b %H:%M')}–{dtend.strftime('%H:%M')} ({tz_label})"
         lines = [
             f"Cannot add '{title}' as-is — conflict or preference violation.",
-            f"Requested: {dtstart.strftime('%a %d %b %H:%M')}–{dtend.strftime('%H:%M')} ({tz_label})",
+            f"Requested: {time_str}",
         ]
         if conflicts:
             names = ", ".join(c["summary"] or "(no title)" for c in conflicts)
@@ -2254,8 +2264,11 @@ async def _handle_event_create_primitive(msg, reply, flags: dict) -> bool:
         await reply.reply_text(f"Calendar error: {e}")
         return True
 
-    parts = [f"Created: {title}",
-             f"{dtstart.strftime('%a %d %b %H:%M')} – {dtend.strftime('%H:%M')} ({tz_label})"]
+    parts = [f"Created: {title}"]
+    if dtend.date() != dtstart.date() and dtstart.hour == 0 and dtstart.minute == 0:
+        parts.append(f"{dtstart.strftime('%a %d %b')} – {dtend.strftime('%a %d %b')} ({tz_label})")
+    else:
+        parts.append(f"{dtstart.strftime('%a %d %b %H:%M')} – {dtend.strftime('%H:%M')} ({tz_label})")
     if rrule:
         parts.append(f"Recurring: {rrule}")
     if location:

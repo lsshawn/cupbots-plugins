@@ -30,6 +30,8 @@ NOT FOR: Sending WhatsApp messages to someone at a scheduled time
 - "delete the standup meeting" → first `/event search --query "standup"` to get UID, then `/event delete --uid <uid>`
 - "what's on my calendar this week?" → `/cal week`
 - "am I free Thursday afternoon?" → `/cal free thursday`
+- "penang trip 22 to 24 may" → `/event create --title "Penang Trip" --start 2026-05-22T00:00 --end 2026-05-24T23:59`
+- "kazakhstan 7th may to 5th jun" → `/event create --title "Kazakhstan Trip" --start 2026-05-07T00:00 --end 2026-06-05T23:59`
 
 ## Rules
 - Do NOT invent subcommands like `/cal list`, `/cal add`, `/event list` — they DO NOT exist
@@ -40,3 +42,4 @@ NOT FOR: Sending WhatsApp messages to someone at a scheduled time
 - For recurring events, use `--rrule` with iCalendar RRULE format
 - If the user only gave a date/time with no subject (e.g. "next wed", "tomorrow 10am"), refuse with reason "no subject given"
 - DATE PARSING: when a numeric date AND time are already present (e.g. "5/5 9.15am"), treat the rest of the text as the TITLE — even if it contains day-like words (sun, mon, wed, fri). These are often part of names (Sunway, Monday.com) not date modifiers. Only treat a word as a day-of-week when no numeric date is given.
+- TRIPS & MULTI-DAY EVENTS: When a user mentions a trip, travel, vacation, or any multi-day event with only dates (no specific times), create an all-day event using `--start YYYY-MM-DDT00:00 --end YYYY-MM-DDT23:59` for the full date range. Infer "Trip" in the title if the user mentions a destination without an explicit title (e.g. "penang 22-24 may" → title "Penang Trip"). These are always acceptable regardless of work hours.

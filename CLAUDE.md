@@ -10,7 +10,9 @@ Each plugin is a self-contained directory under `plugins/`:
 plugins/<name>/
 ├── <name>.py           # Plugin code (required)
 ├── plugin.json         # Metadata (required)
-└── SKILL.md            # Agent-facing docs (required) — read on demand by AI agent
+├── SKILL.md            # Agent-facing docs (required) — read on demand by AI agent
+└── notes/              # AI-managed learned notes (gitignored, created at runtime)
+    └── 2026-04-14T15-32-00.md
 ```
 
 ## Key Rules

@@ -1,1 +1,4 @@
 __pycache__/
+
+# AI-managed learned notes (per-plugin, written at runtime)
+**/notes/
