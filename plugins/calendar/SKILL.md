@@ -38,3 +38,5 @@ NOT FOR: Sending WhatsApp messages to someone at a scheduled time
 - Always get UID from `/event search` before deleting
 - Use `--duration` for simpler event creation when end time isn't specified
 - For recurring events, use `--rrule` with iCalendar RRULE format
+- If the user only gave a date/time with no subject (e.g. "next wed", "tomorrow 10am"), refuse with reason "no subject given"
+- DATE PARSING: when a numeric date AND time are already present (e.g. "5/5 9.15am"), treat the rest of the text as the TITLE — even if it contains day-like words (sun, mon, wed, fri). These are often part of names (Sunway, Monday.com) not date modifiers. Only treat a word as a day-of-week when no numeric date is given.
