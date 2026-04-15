@@ -5,7 +5,8 @@ Stripe invoicing. Create and send invoices from chat.
 ## Commands
 - `/invoice <client> <line-items> [--account NAME] [--proposal REF] [--draft]` — Create invoice
 - `/invoice send <invoice-id>` — Send a draft invoice email
-- `/invoice list [client]` — List recent invoices
+- `/invoice void <invoice-id>` — Void an open invoice or delete a draft
+- `/invoice list [draft|open|paid|void] [client]` — List invoices, filter by status and/or client
 - `/invoice status <invoice-id>` — Check invoice status from Stripe
 - `/invoice accounts` — List configured Stripe accounts
 
@@ -34,5 +35,9 @@ Comma-separated: `<description> <amount> [currency]`
 /invoice "Acme Corp" Web development 3000 USD --proposal PROP-2024-003
 /invoice acme@example.com Web dev 5000 --account agency
 /invoice list
+/invoice list draft
+/invoice list open
+/invoice list open larry
+/invoice void inv_abc123
 /invoice status inv_abc123
 ```

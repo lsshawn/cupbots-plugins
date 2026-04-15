@@ -4,7 +4,8 @@ Invoice — Create and send Stripe invoices from chat.
 Commands:
   /invoice <client> <line-items> [--account NAME] [--proposal REF] [--draft]  — Create invoice
   /invoice send <invoice-id>                        — Send a draft invoice
-  /invoice list [client]                            — List recent invoices
+  /invoice void <invoice-id>                        — Void an open invoice or delete a draft
+  /invoice list [draft|open|paid|void] [client]      — List invoices, filter by status
   /invoice status <invoice-id>                      — Check invoice status
   /invoice accounts                                 — List configured Stripe accounts
 
@@ -179,6 +180,33 @@ def _find_customer_by_name(name: str, company_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def _search_stripe_customer_by_name(name: str, company_id: str, account_name: str) -> dict | None:
+    """Search Stripe for a customer by name, cache locally if found.
+
+    Stripe API key must already be set via _init_stripe_account().
+    """
+    try:
+        results = stripe_mod.Customer.search(query=f'name~"{name}"', limit=1)
+        if not results.data:
+            return None
+        cust = results.data[0]
+        if not cust.email:
+            log.warning("Stripe customer %s (%s) has no email — skipping", cust.id, cust.name)
+            return None
+        # Cache locally
+        conn = _db()
+        conn.execute(
+            "INSERT OR REPLACE INTO clients (company_id, name, email, stripe_customer_id, stripe_account) VALUES (?, ?, ?, ?, ?)",
+            (company_id, cust.name or name, cust.email, cust.id, account_name),
+        )
+        conn.commit()
+        log.info("Found Stripe customer %s (%s) by name search, cached locally", cust.id, cust.name)
+        return {"name": cust.name or name, "email": cust.email, "stripe_customer_id": cust.id}
+    except Exception as e:
+        log.warning("Stripe customer name search failed: %s", e)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Line-item parsing
 # ---------------------------------------------------------------------------
@@ -202,7 +230,7 @@ def _parse_line_items(text: str) -> list[dict]:
             items.append({"description": part, "amount": 0, "currency": "usd"})
             continue
 
-        desc = m.group(1).strip()
+        desc = m.group(1).strip().strip("'\"")
         amount = float(m.group(2).replace(",", ""))
         currency = (m.group(3) or "usd").lower()
         items.append({"description": desc, "amount": amount, "currency": currency})
@@ -303,22 +331,19 @@ async def _cmd_invoice_create(msg, reply) -> None:
     if client_email and not client_name:
         client_name = client_email.split("@")[0].title()
 
+    # Resolve name from local DB first
     if client_name and not client_email:
         existing = _find_customer_by_name(client_name, company_id)
         if existing:
             client_email = existing["email"]
             client_name = existing["name"]
-        else:
-            await reply.reply_text(
-                f"No client found matching '{client_name}'. "
-                f"Use their email: /invoice client@example.com <items>"
-            )
-            return
 
     # Resolve Stripe account: explicit flag > client history > default
     account_name = parsed["account"]
-    if not account_name:
+    if not account_name and client_email:
         account_name = _resolve_client_account(client_email, company_id) or "default"
+    if not account_name:
+        account_name = "default"
 
     # Validate account exists in config
     accounts = _get_accounts_config()
@@ -334,6 +359,19 @@ async def _cmd_invoice_create(msg, reply) -> None:
 
     await reply.send_typing()
 
+    # If name-only and local DB missed, search Stripe by name
+    if client_name and not client_email:
+        cust = _search_stripe_customer_by_name(client_name, company_id, account_name)
+        if cust:
+            client_email = cust["email"]
+            client_name = cust["name"]
+        else:
+            await reply.reply_text(
+                f"No client found matching '{client_name}' in local DB or Stripe. "
+                f"Use their email: /invoice client@example.com <items>"
+            )
+            return
+
     # Find or create Stripe customer
     try:
         customer_id = _find_or_create_customer(client_name, client_email, company_id, account_name)
@@ -344,13 +382,18 @@ async def _cmd_invoice_create(msg, reply) -> None:
     # Determine currency from first line item
     currency = parsed["line_items"][0]["currency"]
 
+    # Determine send behavior before creating
+    cfg = get_config()
+    auto_send = cfg.get("plugin_settings", {}).get("invoice", {}).get("auto_send", True)
+    should_send = not parsed["draft"] and auto_send
+
     # Create invoice
     try:
         invoice_params = {
             "customer": customer_id,
             "collection_method": "send_invoice",
             "days_until_due": 30,
-            "auto_advance": True,
+            "auto_advance": should_send,
         }
         if parsed["proposal_ref"]:
             invoice_params["footer"] = f"Ref: {parsed['proposal_ref']}"
@@ -367,16 +410,8 @@ async def _cmd_invoice_create(msg, reply) -> None:
                 currency=item.get("currency", currency),
             )
 
-        # Finalize
+        # Finalize — auto_advance handles sending when should_send is true
         inv = stripe_mod.Invoice.finalize_invoice(inv.id)
-
-        # Send or keep as draft based on --draft flag / config
-        cfg = get_config()
-        auto_send = cfg.get("plugin_settings", {}).get("invoice", {}).get("auto_send", True)
-        should_send = not parsed["draft"] and auto_send
-
-        if should_send:
-            stripe_mod.Invoice.send_invoice(inv.id)
 
         # Store locally
         conn = _db()
@@ -396,7 +431,7 @@ async def _cmd_invoice_create(msg, reply) -> None:
             f"Amount: {total:,.2f} {currency.upper()}",
             f"Account: {account_name}",
             f"ID: {inv.id}",
-            f"Due: {inv.days_until_due} days",
+            f"Due: {datetime.fromtimestamp(inv.due_date).strftime('%Y-%m-%d')}" if inv.due_date else "Due: 30 days",
         ]
         if parsed["proposal_ref"]:
             lines.append(f"Proposal: {parsed['proposal_ref']}")
@@ -424,31 +459,61 @@ async def _cmd_invoice_create(msg, reply) -> None:
         await reply.reply_text(f"Failed to create invoice: {e}")
 
 
+_VALID_STATUSES = {"draft", "open", "paid", "void", "uncollectible"}
+
+
 async def _cmd_invoice_list(args: list[str], company_id: str) -> str:
-    """List recent invoices, optionally filtered by client."""
+    """List recent invoices, optionally filtered by status or client.
+
+    Usage: /invoice list [--status draft|open|paid|void|uncollectible] [client]
+    """
     conn = _db()
-    if args:
-        client_filter = " ".join(args).lower()
-        rows = conn.execute(
-            "SELECT * FROM invoices WHERE company_id = ? AND LOWER(client_name) LIKE ? ORDER BY created_at DESC LIMIT 20",
-            (company_id, f"%{client_filter}%"),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM invoices WHERE company_id = ? ORDER BY created_at DESC LIMIT 20",
-            (company_id,),
-        ).fetchall()
+    status_filter = None
+    remaining = []
+
+    # Extract --status flag
+    i = 0
+    while i < len(args):
+        if args[i] == "--status" and i + 1 < len(args):
+            status_filter = args[i + 1].lower()
+            i += 2
+        elif args[i].lower() in _VALID_STATUSES and not remaining:
+            # Allow bare status word as shorthand: /invoice list draft
+            status_filter = args[i].lower()
+            i += 1
+        else:
+            remaining.append(args[i])
+            i += 1
+
+    if status_filter and status_filter not in _VALID_STATUSES:
+        return f"Unknown status '{status_filter}'. Valid: {', '.join(sorted(_VALID_STATUSES))}"
+
+    query = "SELECT * FROM invoices WHERE company_id = ?"
+    params: list = [company_id]
+
+    if status_filter:
+        query += " AND status = ?"
+        params.append(status_filter)
+    if remaining:
+        query += " AND LOWER(client_name) LIKE ?"
+        params.append(f"%{' '.join(remaining).lower()}%")
+
+    query += " ORDER BY created_at DESC LIMIT 30"
+    rows = conn.execute(query, params).fetchall()
 
     if not rows:
-        return "No invoices found."
+        label = f" ({status_filter})" if status_filter else ""
+        return f"No invoices found{label}."
 
-    lines = ["Recent invoices:\n"]
+    status_icon_map = {"paid": "\u2705", "open": "\u23f3", "void": "\u274c", "draft": "\u270f\ufe0f", "uncollectible": "\u26a0\ufe0f"}
+    label = f" — {status_filter}" if status_filter else ""
+    lines = [f"Invoices{label}:\n"]
     for r in rows:
         r = dict(r)
         amount = r["amount_total"] / 100
-        status_icon = {"paid": "\u2705", "open": "\u23f3", "void": "\u274c"}.get(r["status"], "\u2753")
+        icon = status_icon_map.get(r["status"], "\u2753")
         acct = f" [{r['stripe_account']}]" if r.get("stripe_account", "default") != "default" else ""
-        line = f"{status_icon} {r['client_name']} — {amount:,.2f} {r['currency'].upper()}{acct} — {r['stripe_invoice_id']}"
+        line = f"{icon} {r['client_name']} — {amount:,.2f} {r['currency'].upper()}{acct} — {r['stripe_invoice_id']}"
         if r.get("proposal_ref"):
             line += f" ({r['proposal_ref']})"
         lines.append(line)
@@ -513,6 +578,39 @@ async def _cmd_invoice_send(invoice_id: str, company_id: str) -> str:
         return f"Error: {e}"
 
 
+async def _cmd_invoice_void(invoice_id: str, company_id: str) -> str:
+    """Void an open invoice. Paid invoices cannot be voided."""
+    conn = _db()
+    row = conn.execute(
+        "SELECT stripe_account FROM invoices WHERE stripe_invoice_id = ? AND company_id = ?",
+        (invoice_id, company_id),
+    ).fetchone()
+    account_name = row[0] if row else "default"
+
+    if not _init_stripe_account(account_name):
+        return f"Stripe account '{account_name}' not configured."
+
+    try:
+        inv = stripe_mod.Invoice.retrieve(invoice_id)
+        if inv.status == "void":
+            return f"Invoice {invoice_id} is already voided."
+        if inv.status == "paid":
+            return f"Invoice {invoice_id} is paid — cannot void. Use Stripe Dashboard to issue a refund."
+        if inv.status == "draft":
+            stripe_mod.Invoice.delete(invoice_id)
+            conn.execute("UPDATE invoices SET status = 'void' WHERE stripe_invoice_id = ?", (invoice_id,))
+            conn.commit()
+            return f"Draft invoice {invoice_id} deleted."
+        inv = stripe_mod.Invoice.void_invoice(invoice_id)
+        conn.execute("UPDATE invoices SET status = 'void' WHERE stripe_invoice_id = ?", (invoice_id,))
+        conn.commit()
+        return f"Invoice {invoice_id} voided ({inv.customer_name or inv.customer_email or inv.customer})."
+    except stripe_mod.error.InvalidRequestError as e:
+        return f"Failed to void invoice: {e}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
 async def _cmd_accounts() -> str:
     """List configured Stripe accounts."""
     accounts = _get_accounts_config()
@@ -558,6 +656,14 @@ async def handle_command(msg, reply) -> bool:
             await reply.reply_text("Usage: /invoice send <invoice-id>")
             return True
         result = await _cmd_invoice_send(args[1], company_id)
+        await reply.reply_text(result)
+        return True
+
+    if args and args[0] == "void":
+        if len(args) < 2:
+            await reply.reply_text("Usage: /invoice void <invoice-id>")
+            return True
+        result = await _cmd_invoice_void(args[1], company_id)
         await reply.reply_text(result)
         return True
 

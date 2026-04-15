@@ -1,6 +1,6 @@
 {
   "name": "bill",
-  "description": "Track billable work per client — log, edit, tally, create Stripe invoices",
+  "description": "Track billable work hours per client — log time entries, edit, tally, convert logged hours to Stripe invoices",
   "version": "0.1.0",
   "author": "CupBots",
   "commands": [

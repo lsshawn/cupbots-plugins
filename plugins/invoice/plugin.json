@@ -1,19 +1,22 @@
 {
   "name": "invoice",
-  "description": "Stripe invoicing — create and send invoices to clients",
+  "description": "Create Stripe invoices directly — use when user says 'create invoice' or 'draft invoice' with line items and amounts",
   "version": "0.1.0",
   "author": "CupBots",
   "commands": [
     "/invoice",
     "/invoice send",
+    "/invoice void",
     "/invoice list",
     "/invoice status"
   ],
   "write_commands": [
     "/invoice",
-    "/invoice send"
+    "/invoice send",
+    "/invoice void"
   ],
-  "intent": "Create Stripe invoices, find or create clients, send invoices with line items",
+  "intent": "Create draft or send Stripe invoices directly with line items and amounts, send draft invoices, check invoice status. Use this when the user says 'create invoice', 'draft invoice', 'send invoice', or provides line items with amounts to invoice a client",
+  "not_intent": "Log billable hours or time entries (use /bill), track work done (use /bill), convert logged bill items to invoices (use /bill invoice)",
   "config": ["auto_send"],
   "pip_dependencies": ["stripe"],
   "free": true,
