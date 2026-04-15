@@ -378,6 +378,121 @@ def _add_entries_to_beancount(parsed: dict, ledger_type: str) -> tuple[bool, str
             sys.path.remove(str(SCRIPTS_DIR))
 
 
+def _find_duplicate(parsed: dict, ledger_type: str) -> str | None:
+    """Check if parsed entry is a likely duplicate of an existing journal entry.
+
+    Three tiers:
+      1. Exact receipt/invoice ID match → definite duplicate
+      2. Same amount within ±3 days of same payee → likely duplicate
+      3. Same amount within ±3 days, different payee → suspicious, warn
+
+    Parses the journal once into lightweight tuples. No LLM call.
+    Returns a warning string if duplicate found, None otherwise.
+    """
+    journal_path = _get_ledger_paths(ledger_type)["journal"]
+    try:
+        content = journal_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+    # --- Extract new entry signals ---
+    new_ids = set()
+    new_entries = []  # list of (date_obj, amount_float, currency, payee_lower, narration_lower)
+    for posting in parsed.get("postings", []):
+        id_match = re.search(r'id:\s*"([^"]+)"', posting)
+        if id_match:
+            new_ids.add(id_match.group(1).strip().lower())
+        header = re.match(r'(\d{4}-\d{2}-\d{2})\s+\*\s+"([^"]*)"\s+"([^"]*)"', posting)
+        if not header:
+            header = re.match(r'(\d{4}-\d{2}-\d{2})\s+\*\s+"([^"]*)"', posting)
+        if header:
+            try:
+                date_obj = datetime.strptime(header.group(1), "%Y-%m-%d")
+            except ValueError:
+                continue
+            payee = header.group(2).lower()
+            narration = header.group(3).lower() if header.lastindex >= 3 else ""
+            # Find first debit amount (positive number on expense/asset line)
+            amt_match = re.search(r'(\d[\d,]*\.?\d*)\s+([A-Z]{3})', posting)
+            if amt_match:
+                try:
+                    amount = float(amt_match.group(1).replace(",", ""))
+                except ValueError:
+                    continue
+                currency = amt_match.group(2)
+                new_entries.append((date_obj, amount, currency, payee, narration))
+
+    if not new_ids and not new_entries:
+        return None
+
+    # --- Parse existing entries in one pass ---
+    existing_ids: dict[str, str] = {}
+    existing_entries = []  # same shape as new_entries + summary string
+
+    tx_re = re.compile(r'^(\d{4}-\d{2}-\d{2})\s+\*\s+"([^"]*)"(?:\s+"([^"]*)")?', re.MULTILINE)
+    for match in tx_re.finditer(content):
+        date_str, payee, narration = match.group(1), match.group(2), match.group(3) or ""
+        start = match.start()
+        next_tx = tx_re.search(content, match.end() + 1)
+        block = content[start:next_tx.start() if next_tx else len(content)]
+        summary = f"{date_str} \"{payee}\" \"{narration}\""
+
+        id_match = re.search(r'id:\s*"([^"]+)"', block)
+        if id_match:
+            existing_ids[id_match.group(1).strip().lower()] = summary
+
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        amt_match = re.search(r'(\d[\d,]*\.?\d*)\s+([A-Z]{3})', block.split('\n', 1)[-1])
+        if amt_match:
+            try:
+                amount = float(amt_match.group(1).replace(",", ""))
+            except ValueError:
+                continue
+            currency = amt_match.group(2)
+            existing_entries.append((date_obj, amount, currency, payee.lower(), narration.lower(), summary))
+
+    # --- Tier 1: exact ID match ---
+    for nid in new_ids:
+        if nid in existing_ids:
+            return f"Duplicate ID '{nid}' already exists: {existing_ids[nid]}"
+
+    # --- Tier 2 & 3: fuzzy amount + date window ---
+    from datetime import timedelta
+    for n_date, n_amt, n_cur, n_payee, n_narr in new_entries:
+        for e_date, e_amt, e_cur, e_payee, e_narr, e_summary in existing_entries:
+            if n_cur != e_cur:
+                continue
+            day_diff = abs((n_date - e_date).days)
+            if day_diff > 3:
+                continue
+            # Amount must be within 1% or ±0.50 (rounding differences)
+            if n_amt == 0:
+                continue
+            amt_diff = abs(n_amt - e_amt)
+            if amt_diff > max(n_amt * 0.01, 0.50):
+                continue
+
+            # Same amount window — check payee similarity
+            if n_payee == e_payee:
+                return f"Likely duplicate: {e_summary} (same payee, amount, ±3 days)"
+
+            # Different payee but same amount + date window — could be same vendor, different spelling
+            # Check if payee or narration words overlap
+            n_words = set(n_payee.split()) | set(n_narr.split())
+            e_words = set(e_payee.split()) | set(e_narr.split())
+            # Drop tiny filler words that cause false positives
+            filler = {"", "sdn", "bhd", "the", "of", "and", "a", "at", "to", "for", "in", "on"}
+            n_words -= filler
+            e_words -= filler
+            if n_words and e_words and n_words & e_words:
+                return f"Suspicious match: {e_summary} (similar payee/narration, same amount, ±3 days)"
+
+    return None
+
+
 def _move_invoice(file_path: Path, parsed: dict, ledger_type: str) -> tuple[bool, str]:
     """Move invoice to the correct beancount document folder."""
     new_relative_dir = parsed.get("file_path")
@@ -760,6 +875,12 @@ async def _handle_recording_cross_platform(msg, reply, record_type: str) -> None
     # Enrich FX rates
     parsed = await _enrich_with_fx_rates(parsed)
 
+    # Check for duplicates before recording
+    dup_warning = _find_duplicate(parsed, ledger_type)
+    if dup_warning:
+        await reply.reply_error(f"Skipped — {dup_warning}")
+        return
+
     # Show what will be recorded
     lines = [f"{record_type.title()} ({ledger_type})", ""]
     for posting in parsed.get("postings", []):
@@ -779,10 +900,17 @@ async def _handle_recording_cross_platform(msg, reply, record_type: str) -> None
 
     _run_bean_format(ledger_type)
 
+    # Move receipt/invoice to beancount documents folder
+    file_status = ""
+    if attachment:
+        _ensure_file_destination(parsed, attachment)
+        moved, move_msg = _move_invoice(attachment, parsed, ledger_type)
+        file_status = f" {move_msg}" if moved else f" Warning: {move_msg}"
+
     valid, check_msg = _run_bean_check(ledger_type)
     if valid:
         _regenerate_summary(ledger_type)
-        await reply.reply_text(f"Recorded. bean-check passed.")
+        await reply.reply_text(f"Recorded. bean-check passed.{file_status}")
     else:
         await send_long_text(reply, f"Entries added but bean-check errors:\n{check_msg}", "bean-check-errors.txt")
 
@@ -832,10 +960,16 @@ async def _handle_finance_scan(msg, reply) -> None:
             await reply.reply_error(f"Failed to parse {file_path.name}")
             continue
 
-        # 2. Enrich FX rates
+        # 2. Duplicate check
+        dup_warning = _find_duplicate(parsed, ledger_type)
+        if dup_warning:
+            await reply.reply_text(f"⏭ Skipped {file_path.name} — {dup_warning}")
+            continue
+
+        # 3. Enrich FX rates
         parsed = await _enrich_with_fx_rates(parsed)
 
-        # 3. Show entries
+        # 4. Show entries
         lines = [f"{file_path.name}", ""]
         for posting in parsed.get("postings", []):
             lines.append(posting)
@@ -848,22 +982,22 @@ async def _handle_finance_scan(msg, reply) -> None:
 
         await reply.reply_text("\n".join(lines))
 
-        # 4. Auto-approve: add entries
+        # 5. Auto-approve: add entries
         success, msg_text = _add_entries_to_beancount(parsed, ledger_type)
         if not success:
             await reply.reply_error(f"Error adding entries for {file_path.name}: {msg_text}")
             continue
 
-        # 5. Format journal
+        # 6. Format journal
         _run_bean_format(ledger_type)
 
-        # 6. Validate
+        # 7. Validate
         valid, check_msg = _run_bean_check(ledger_type)
         if not valid:
             await send_long_text(reply, f"Entries added for {file_path.name} but bean-check errors:\n{check_msg}", "bean-check-errors.txt")
             continue
 
-        # 7. Move invoice
+        # 8. Move invoice
         moved, move_msg = _move_invoice(file_path, parsed, ledger_type)
         status = f"Recorded {file_path.name}. bean-check passed."
         if moved:

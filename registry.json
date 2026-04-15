@@ -34,7 +34,7 @@
     },
     "bill": {
       "name": "bill",
-      "description": "Track billable work per client \u2014 log, edit, tally, create Stripe invoices",
+      "description": "Track billable work hours per client \u2014 log time entries, edit, tally, convert logged hours to Stripe invoices",
       "version": "0.1.0",
       "author": "CupBots",
       "commands": [
@@ -62,34 +62,6 @@
       },
       "files": [
         "plugins/bill.py"
-      ]
-    },
-    "bookmarks": {
-      "name": "bookmarks",
-      "description": "Save, search, and manage bookmarked links",
-      "version": "1.0.0",
-      "author": "CupBots",
-      "commands": [
-        "/bookmark",
-        "/bookmarks",
-        "/unbookmark"
-      ],
-      "write_commands": [
-        "/bookmark",
-        "/unbookmark"
-      ],
-      "intent": "Save, search, or manage bookmarked URLs and links",
-      "config": [],
-      "free": true,
-      "bundled": true,
-      "marketplace": {
-        "icon": "bookmark",
-        "tagline": "Save, search, and tag links without leaving the chat",
-        "category": "productivity",
-        "long_description": "Never lose a useful link again. Save bookmarks with auto-fetched titles, organize them with hashtags, and search your collection instantly. Perfect for teams that share resources across WhatsApp conversations."
-      },
-      "files": [
-        "plugins/bookmarks.py"
       ]
     },
     "calendar": {
@@ -401,31 +373,6 @@
         "plugins/community.py"
       ]
     },
-    "contacts": {
-      "name": "contacts",
-      "description": "Personal CRM \u2014 track contacts, tiers, interactions, and follow-ups",
-      "version": "2.0.0",
-      "author": "CupBots",
-      "commands": [
-        "/crm"
-      ],
-      "write_commands": [
-        "/crm"
-      ],
-      "intent": "Look up contact info, remember details about people, manage CRM entries, log interactions",
-      "not_intent": "Sending messages to contacts",
-      "config": [],
-      "free": true,
-      "bundled": true,
-      "marketplace": {
-        "icon": "contacts",
-        "tagline": "Personal CRM with tiered contacts and follow-up reminders",
-        "category": "productivity"
-      },
-      "files": [
-        "plugins/contacts.py"
-      ]
-    },
     "devops": {
       "name": "devops",
       "version": "1.0.0",
@@ -466,31 +413,6 @@
       },
       "files": [
         "plugins/dm_onboarding.py"
-      ]
-    },
-    "faq": {
-      "name": "faq",
-      "description": "Trainable Q&A bot \u2014 add FAQ entries, fuzzy search, auto-answer in groups",
-      "version": "1.0.0",
-      "author": "CupBots",
-      "commands": [
-        "/faq"
-      ],
-      "intent": "Add or search frequently asked questions for auto-answers in groups",
-      "not_intent": "Knowledge base document search",
-      "config": [],
-      "free": false,
-      "price": "$19",
-      "price_type": "monthly",
-      "bundled": false,
-      "marketplace": {
-        "icon": "quiz",
-        "tagline": "Instant answers from your knowledge base",
-        "category": "productivity",
-        "long_description": "Train a Q&A bot for your group in seconds. Add question-answer pairs and let the bot auto-reply when members ask common questions. Fuzzy search finds the best match even when the question isn't worded exactly. Toggle auto-answer mode so the bot proactively answers without needing /faq \u2014 like having a 24/7 support agent in your group."
-      },
-      "files": [
-        "plugins/faq.py"
       ]
     },
     "finance": {
@@ -686,47 +608,28 @@
         "plugins/heartbeat.py"
       ]
     },
-    "ideas": {
-      "name": "ideas",
-      "description": "Capture and review ideas organized by year",
-      "version": "1.0.0",
-      "author": "CupBots",
-      "commands": [
-        "/idea",
-        "/ideas"
-      ],
-      "write_commands": [
-        "/idea"
-      ],
-      "intent": "Capture startup ideas, project ideas, or brainstorms for later review",
-      "config": [],
-      "free": true,
-      "bundled": true,
-      "marketplace": {
-        "icon": "lightbulb",
-        "tagline": "Capture ideas the moment they strike, review later",
-        "category": "productivity",
-        "long_description": "Don't let good ideas slip away. Jot down thoughts instantly from WhatsApp and review them organized by year. Great for founders and creators who need a frictionless way to build an idea backlog."
-      },
-      "files": [
-        "plugins/ideas.py"
-      ]
-    },
     "invoice": {
       "name": "invoice",
-      "description": "Stripe invoicing \u2014 create and send invoices to clients",
+      "description": "Create Stripe invoices directly \u2014 use when user says 'create invoice' or 'draft invoice' with line items and amounts",
       "version": "0.1.0",
       "author": "CupBots",
       "commands": [
         "/invoice",
+        "/invoice send",
+        "/invoice void",
         "/invoice list",
         "/invoice status"
       ],
       "write_commands": [
-        "/invoice"
+        "/invoice",
+        "/invoice send",
+        "/invoice void"
       ],
-      "intent": "Create Stripe invoices, find or create clients, send invoices with line items",
-      "config": [],
+      "intent": "Create draft or send Stripe invoices directly with line items and amounts, send draft invoices, check invoice status. Use this when the user says 'create invoice', 'draft invoice', 'send invoice', or provides line items with amounts to invoice a client",
+      "not_intent": "Log billable hours or time entries (use /bill), track work done (use /bill), convert logged bill items to invoices (use /bill invoice)",
+      "config": [
+        "auto_send"
+      ],
       "pip_dependencies": [
         "stripe"
       ],
@@ -1080,30 +983,6 @@
       "files": [
         "pb_migrations/1712000001_mdpubs_notes.js",
         "plugins/mdpubs.py"
-      ]
-    },
-    "note": {
-      "name": "note",
-      "description": "Personal knowledge hub \u2014 notes, ideas, and bookmarks",
-      "version": "2.0.0",
-      "author": "CupBots",
-      "commands": [
-        "/note"
-      ],
-      "write_commands": [
-        "/note"
-      ],
-      "intent": "Create notes, capture ideas, save bookmarks \u2014 personal knowledge management",
-      "config": [],
-      "free": true,
-      "bundled": true,
-      "marketplace": {
-        "icon": "edit_note",
-        "tagline": "Personal knowledge hub \u2014 notes, ideas, and bookmarks from chat",
-        "category": "productivity"
-      },
-      "files": [
-        "plugins/note.py"
       ]
     },
     "notion": {
@@ -1668,18 +1547,56 @@
     },
     "wiki": {
       "name": "wiki",
-      "version": "1.0.0",
-      "description": "AI-maintained wiki that synthesizes entity profiles from raw documents, emails, and calendar events. Implements the LLM Wiki pattern for incremental knowledge synthesis.",
+      "version": "2.0.0",
+      "description": "AI-maintained second brain \u2014 knowledge synthesis, personal CRM, notes, ideas, bookmarks, FAQ, and WhatsApp chat digest",
       "author": "CupBots",
       "commands": [
         {
           "name": "wiki",
-          "description": "Manage wiki workspaces, ingest documents, search entities, and view logs",
+          "description": "Knowledge base: ingest, search, query, digest, lint",
           "usage": "/wiki <subcommand> [--workspace <name>]"
+        },
+        {
+          "name": "crm",
+          "description": "Personal CRM \u2014 look up contacts, remember facts, log interactions",
+          "usage": "/crm <whois|remember|touched|birthday|list>"
+        },
+        {
+          "name": "note",
+          "description": "Create notes, save bookmarks",
+          "usage": "/note <title> [-- body]"
+        },
+        {
+          "name": "idea",
+          "description": "Capture an idea",
+          "usage": "/idea <description>"
+        },
+        {
+          "name": "ideas",
+          "description": "List ideas",
+          "usage": "/ideas"
+        },
+        {
+          "name": "bookmarks",
+          "description": "List saved bookmarks",
+          "usage": "/bookmarks"
+        },
+        {
+          "name": "faq",
+          "description": "FAQ management and auto-answer",
+          "usage": "/faq <add|remove|list|auto|query>"
         }
       ],
-      "intent": "Search wiki, find entity info, ingest documents, manage knowledge base, look up people or companies",
-      "not_intent": "General notes, bookmarks, or reminders",
+      "write_commands": [
+        "/crm",
+        "/note",
+        "/idea",
+        "/faq",
+        "/wiki digest",
+        "/wiki ingest"
+      ],
+      "intent": "Search wiki, find entity info, ingest documents, manage knowledge base, look up people or companies, personal CRM (whois, remember, overdue contacts, birthdays), notes and ideas, bookmarks, FAQ entries, WhatsApp chat digest",
+      "not_intent": "RAG document search (/knowledgebase), calendar events (/cal), reminders (/remind), sending messages (/wa)",
       "config": [],
       "pip_dependencies": [
         "sqlite-vec",
@@ -1687,6 +1604,11 @@
       ],
       "free": true,
       "bundled": true,
+      "marketplace": {
+        "icon": "auto_stories",
+        "tagline": "AI second brain \u2014 wiki, CRM, notes, ideas, bookmarks, FAQ, and WhatsApp digest",
+        "category": "productivity"
+      },
       "files": [
         "plugins/wiki.py"
       ]
@@ -1694,7 +1616,7 @@
     "xdigest": {
       "name": "xdigest",
       "description": "AI market intelligence from your X/Twitter list \u2014 product signals, business ideas, distribution levers",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "CupBots",
       "commands": [
         "/xdigest"
@@ -1704,11 +1626,11 @@
         [
           [
             "key",
-            "xdigest_list_id"
+            "xdigest_list_ids"
           ],
           [
             "label",
-            "X List ID"
+            "X List IDs"
           ],
           [
             "type",
@@ -1720,7 +1642,7 @@
           ],
           [
             "help",
-            "The numeric ID of your X list (from the list URL)"
+            "List of X list IDs to scrape (from list URLs: x.com/i/lists/<id>)"
           ]
         ],
         [

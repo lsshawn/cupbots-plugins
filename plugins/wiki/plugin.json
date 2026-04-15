@@ -1,19 +1,62 @@
 {
   "name": "wiki",
-  "version": "1.0.0",
-  "description": "AI-maintained wiki that synthesizes entity profiles from raw documents, emails, and calendar events. Implements the LLM Wiki pattern for incremental knowledge synthesis.",
+  "version": "2.0.0",
+  "description": "AI-maintained second brain — knowledge synthesis, personal CRM, notes, ideas, bookmarks, FAQ, and WhatsApp chat digest",
   "author": "CupBots",
   "commands": [
     {
       "name": "wiki",
-      "description": "Manage wiki workspaces, ingest documents, search entities, and view logs",
+      "description": "Knowledge base: ingest, search, query, digest, lint",
       "usage": "/wiki <subcommand> [--workspace <name>]"
+    },
+    {
+      "name": "crm",
+      "description": "Personal CRM — look up contacts, remember facts, log interactions",
+      "usage": "/crm <whois|remember|touched|birthday|list>"
+    },
+    {
+      "name": "note",
+      "description": "Create notes, save bookmarks",
+      "usage": "/note <title> [-- body]"
+    },
+    {
+      "name": "idea",
+      "description": "Capture an idea",
+      "usage": "/idea <description>"
+    },
+    {
+      "name": "ideas",
+      "description": "List ideas",
+      "usage": "/ideas"
+    },
+    {
+      "name": "bookmarks",
+      "description": "List saved bookmarks",
+      "usage": "/bookmarks"
+    },
+    {
+      "name": "faq",
+      "description": "FAQ management and auto-answer",
+      "usage": "/faq <add|remove|list|auto|query>"
     }
   ],
-  "intent": "Search wiki, find entity info, ingest documents, manage knowledge base, look up people or companies",
-  "not_intent": "General notes, bookmarks, or reminders",
+  "write_commands": [
+    "/crm",
+    "/note",
+    "/idea",
+    "/faq",
+    "/wiki digest",
+    "/wiki ingest"
+  ],
+  "intent": "Search wiki, find entity info, ingest documents, manage knowledge base, look up people or companies, personal CRM (whois, remember, overdue contacts, birthdays), notes and ideas, bookmarks, FAQ entries, WhatsApp chat digest",
+  "not_intent": "RAG document search (/knowledgebase), calendar events (/cal), reminders (/remind), sending messages (/wa)",
   "config": [],
   "pip_dependencies": ["sqlite-vec", "pdfplumber"],
   "free": true,
-  "bundled": true
+  "bundled": true,
+  "marketplace": {
+    "icon": "auto_stories",
+    "tagline": "AI second brain — wiki, CRM, notes, ideas, bookmarks, FAQ, and WhatsApp digest",
+    "category": "productivity"
+  }
 }
