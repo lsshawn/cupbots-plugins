@@ -1,12 +1,12 @@
 """
-Contacts CRM
+Contacts CRM — personal CRM under /crm.
 
-Commands (works in any topic):
-  /crm                    — Show contacts due for a check-in
-  /whois <name>           — Look up a contact (fuzzy match)
-  /remember <name> — <note> — Add a note about someone
-  /addcontact <name>      — Add a new contact
-  /contacts [tag|tier]    — Search/filter contacts
+Commands:
+  /crm                              — Overdue check-ins
+  /crm whois <name>                 — Look up a contact (fuzzy match)
+  /crm remember <name> -- <note>    — Add a note about someone
+  /crm list [tier|tag|query]        — Search/filter contacts
+  /crm touched <name> [note]        — Log an interaction
 """
 
 import re
@@ -680,11 +680,40 @@ async def _periodic_wa_sync(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_command(msg, reply) -> bool:
-    """Platform-agnostic command handler for CRM. Tenant-scoped via msg.company_id."""
+    """Hub command handler — /crm with subcommands. Also handles legacy standalone commands."""
+    cmd = msg.command
+    args = msg.args or []
+
+    # Legacy standalone commands → remap to /crm subcommands
+    _LEGACY_MAP = {"whois": "whois", "remember": "remember", "contacts": "list", "touched": "touched"}
+    if cmd in _LEGACY_MAP:
+        sub = _LEGACY_MAP[cmd]
+        return await _dispatch_crm(sub, args, msg, reply)
+
+    if cmd != "crm":
+        return False
+
+    if args and args[0] in ("--help", "-h", "help"):
+        await reply.reply_text(__doc__.strip())
+        return True
+
+    sub = args[0].lower() if args else None
+    remaining = args[1:] if args else []
+
+    _SUBCOMMANDS = ("whois", "remember", "list", "touched")
+    if sub and sub in _SUBCOMMANDS:
+        return await _dispatch_crm(sub, remaining, msg, reply)
+
+    # Default: /crm with no subcommand → show overdue check-ins
+    return await _dispatch_crm("overdue", [], msg, reply)
+
+
+async def _dispatch_crm(sub: str, args: list, msg, reply) -> bool:
+    """Route CRM subcommands to their handlers."""
     conn = _db()
     company_id = msg.company_id or ""
 
-    if msg.command == "crm":
+    if sub == "overdue":
         today = datetime.now().strftime("%Y-%m-%d")
         overdue = conn.execute(
             "SELECT * FROM contacts WHERE company_id = ? "
@@ -702,12 +731,12 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text("\n".join(lines))
         return True
 
-    elif msg.command == "whois":
-        if not msg.args:
-            await reply.reply_text("Usage: /whois <name>")
+    elif sub == "whois":
+        if not args:
+            await reply.reply_text("Usage: /crm whois <name>")
             return True
 
-        query = " ".join(msg.args)
+        query = " ".join(args)
         results = await _find_contacts(query, company_id=company_id)
         if not results:
             await reply.reply_text(f"No contacts matching '{query}'.")
@@ -715,9 +744,6 @@ async def handle_command(msg, reply) -> bool:
         lines = []
         for c in results[:5]:
             lines.append(_format_contact(c, verbose=True))
-            # Defense in depth: even though contact_id uniquely identifies the
-            # row, scope by company_id too so a stale id can't return another
-            # tenant's interactions.
             interactions = conn.execute(
                 "SELECT * FROM interactions WHERE company_id = ? AND contact_id = ? "
                 "ORDER BY id DESC LIMIT 5",
@@ -733,12 +759,12 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text(text)
         return True
 
-    elif msg.command == "remember":
-        if not msg.args:
-            await reply.reply_text("Usage: /remember <name> -- <note>")
+    elif sub == "remember":
+        if not args:
+            await reply.reply_text("Usage: /crm remember <name> -- <note>")
             return True
 
-        raw = " ".join(msg.args)
+        raw = " ".join(args)
         if " \u2014 " in raw:
             name, note = raw.split(" \u2014 ", 1)
         elif " -- " in raw:
@@ -746,7 +772,7 @@ async def handle_command(msg, reply) -> bool:
         else:
             parts = raw.split(None, 1)
             if len(parts) < 2:
-                await reply.reply_text("Usage: /remember <name> -- <note>")
+                await reply.reply_text("Usage: /crm remember <name> -- <note>")
                 return True
             name, note = parts
 
@@ -783,8 +809,8 @@ async def handle_command(msg, reply) -> bool:
             await reply.reply_text(f"Created contact {name} with note.")
         return True
 
-    elif msg.command == "contacts":
-        if not msg.args:
+    elif sub == "list":
+        if not args:
             lines = ["Contacts:\n"]
             for tier, (label, interval) in TIERS.items():
                 count = conn.execute(
@@ -800,7 +826,7 @@ async def handle_command(msg, reply) -> bool:
             await reply.reply_text("\n".join(lines))
             return True
 
-        query = " ".join(msg.args)
+        query = " ".join(args)
         if query.upper() in TIERS:
             rows = conn.execute(
                 "SELECT * FROM contacts WHERE company_id = ? AND tier = ?",
@@ -820,12 +846,12 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text("\n".join(lines))
         return True
 
-    elif msg.command == "touched":
-        if not msg.args:
-            await reply.reply_text("Usage: /touched <name> [note]")
+    elif sub == "touched":
+        if not args:
+            await reply.reply_text("Usage: /crm touched <name> [note]")
             return True
 
-        raw = " ".join(msg.args)
+        raw = " ".join(args)
         parts = raw.split(None, 1)
         search_name = parts[0]
         note = parts[1] if len(parts) > 1 else None

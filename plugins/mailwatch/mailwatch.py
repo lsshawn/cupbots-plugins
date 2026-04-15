@@ -878,7 +878,7 @@ async def _ai_fallback(email_data: dict, mb: dict | None = None):
                     f"Email subject: {email_data['subject']}\n"
                     f"Email body:\n{body}\n\n"
                     f"Return JSON: {{\"title\": \"...\", \"date\": \"YYYY-MM-DD\", \"time\": \"HH:MM\", "
-                    f"\"timezone\": \"...\", \"duration_minutes\": N, \"meeting_link\": \"...\"}}\n\n"
+                    f"\"timezone\": \"...\", \"duration_minutes\": N, \"meeting_link\": \"...\", \"location\": \"...\"}}\n\n"
                     f"Rules:\n"
                     f"- Extract the MEETING date/time, NOT the email sent/forwarded timestamp\n"
                     f"- Look for phrases like 'scheduled for', 'join at', or calendar header lines\n"
@@ -890,22 +890,26 @@ async def _ai_fallback(email_data: dict, mb: dict | None = None):
                 extract_result = await ask_llm(extract_prompt, json_mode=False, timeout=30)
                 meeting_data = _extract_json(extract_result)
                 if meeting_data and isinstance(meeting_data, dict) and meeting_data.get("date") and meeting_data.get("time"):
-                    # Build /event command and execute it
+                    # Build /event create command with proper flag syntax
                     from cupbots.run_command import run
-                    event_parts = [meeting_data["title"]]
-                    event_parts.append(meeting_data["date"])
-                    event_parts.append(meeting_data["time"])
-                    # Include timezone if not MYT
-                    tz = meeting_data.get("timezone", "")
-                    if tz and "kuala" not in tz.lower() and "myt" not in tz.lower() and "malaysia" not in tz.lower():
-                        event_parts.append(tz)
-                    if meeting_data.get("meeting_link"):
-                        event_parts.append(meeting_data["meeting_link"])
-                    event_cmd = "/event " + " ".join(event_parts)
-                    log.info("AI fallback: extracted meeting, running: %s", event_cmd[:120])
+                    import shlex
+                    title = meeting_data["title"] or email_data["subject"]
+                    start_iso = f"{meeting_data['date']}T{meeting_data['time']}"
+                    duration = meeting_data.get("duration_minutes", 60) or 60
+                    event_cmd = f"/event create --title {shlex.quote(title)} --start {start_iso} --duration {duration}m"
+                    location = meeting_data.get("location", "")
+                    link = meeting_data.get("meeting_link", "")
+                    loc_parts = [p for p in (location, link) if p]
+                    if loc_parts:
+                        event_cmd += f" --location {shlex.quote(' | '.join(loc_parts))}"
+                    log.info("AI fallback: extracted meeting, running: %s", event_cmd[:200])
                     event_output = await run(event_cmd, chat, "")
-                    event_summary_lines.append(f"Created event via email extraction:\n{event_output}")
-                    meeting_created = True
+                    if event_output.startswith("Created:"):
+                        event_summary_lines.append(f"Created event via email extraction:\n{event_output}")
+                        meeting_created = True
+                    else:
+                        log.warning("AI fallback: /event create failed: %s", event_output[:200])
+                        meeting_created = False
                 else:
                     log.info("AI fallback: no meeting details extracted from body")
             except Exception as e:

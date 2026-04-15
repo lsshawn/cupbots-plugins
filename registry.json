@@ -2,6 +2,68 @@
   "version": 1,
   "api": "https://api.cupbots.com",
   "plugins": {
+    "baby_tracker": {
+      "name": "baby_tracker",
+      "version": "1.0.0",
+      "description": "Baby Tracker",
+      "commands": [
+        "/feed",
+        "/sleep",
+        "/diaper",
+        "/milestone",
+        "/stats",
+        "/analyze",
+        "/ask",
+        "/undo",
+        "/baby"
+      ],
+      "primitives": [
+        "/feed <ml|left|right|pump> \u2014 Log feeding",
+        "/sleep \u2014 Toggle sleep start/stop",
+        "/diaper <wet|poop|both> \u2014 Log diaper",
+        "/milestone <text> \u2014 Log milestone",
+        "/stats \u2014 Today's summary",
+        "/analyze [days] \u2014 Chart for N days",
+        "/ask <question> \u2014 Ask Claude Code (continues session)",
+        "/undo \u2014 Delete last entry",
+        "/baby \u2014 Show baby commands"
+      ],
+      "files": [
+        "plugins/baby_tracker.py"
+      ]
+    },
+    "bill": {
+      "name": "bill",
+      "description": "Track billable work per client \u2014 log, edit, tally, create Stripe invoices",
+      "version": "0.1.0",
+      "author": "CupBots",
+      "commands": [
+        "/bill",
+        "/bill list",
+        "/bill edit",
+        "/bill delete",
+        "/bill clients",
+        "/bill invoice",
+        "/bill history"
+      ],
+      "write_commands": [
+        "/bill"
+      ],
+      "intent": "Log billable work, track hours, edit bill items, tally pending amounts, create Stripe invoices from pending items, list clients",
+      "not_intent": "Send standalone Stripe invoices without bill items (use /invoice), manage tasks (use /task), track expenses",
+      "config": [],
+      "pip_dependencies": [],
+      "free": true,
+      "bundled": true,
+      "marketplace": {
+        "icon": "request_quote",
+        "tagline": "Track billable work from chat \u2014 log, edit, tally, invoice",
+        "category": "finance"
+      },
+      "files": [
+        "plugins/bill.py"
+      ]
+    },
     "bookmarks": {
       "name": "bookmarks",
       "description": "Save, search, and manage bookmarked links",
@@ -272,6 +334,49 @@
         "plugins/calendar.py"
       ]
     },
+    "carousell": {
+      "name": "carousell",
+      "version": "1.0.0",
+      "description": "Search & track deals on Carousell MY/SG.",
+      "commands": [
+        "/carousell"
+      ],
+      "primitives": [
+        "/carousell <query> \u2014 Search Carousell for listings (best match)",
+        "/carousell track <query> \u2014 Add keyword to daily price alerts",
+        "/carousell untrack <query> \u2014 Remove keyword from daily alerts",
+        "/carousell list \u2014 Show tracked keywords",
+        "/carousell recent <query> \u2014 Search by most recent (instead of best match)"
+      ],
+      "files": [
+        "plugins/carousell.py"
+      ]
+    },
+    "claude_chat": {
+      "name": "claude_chat",
+      "version": "1.0.0",
+      "description": "Claude AI",
+      "commands": [
+        "/new",
+        "/haiku",
+        "/sonnet",
+        "/opus",
+        "/roast",
+        "/image"
+      ],
+      "primitives": [
+        "/new \u2014 Start a fresh Claude session",
+        "/haiku \u2014 Switch to Haiku (fast, cheap)",
+        "/sonnet \u2014 Switch to Sonnet (balanced)",
+        "/opus \u2014 Switch to Opus (most capable)",
+        "/roast <idea or plan> \u2014 Devil's advocate / indie hacker coach roast",
+        "/image <prompt> \u2014 Generate image (flash)",
+        "/image pro <prompt> \u2014 Generate image (pro, higher quality)"
+      ],
+      "files": [
+        "plugins/claude_chat.py"
+      ]
+    },
     "community": {
       "name": "community",
       "description": "All-in-one WhatsApp community management \u2014 gamification, moderation, onboarding, analytics, roles, and scheduled content",
@@ -299,18 +404,13 @@
     "contacts": {
       "name": "contacts",
       "description": "Personal CRM \u2014 track contacts, tiers, interactions, and follow-ups",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "author": "CupBots",
       "commands": [
-        "/crm",
-        "/whois",
-        "/remember",
-        "/addcontact",
-        "/contacts"
+        "/crm"
       ],
       "write_commands": [
-        "/remember",
-        "/addcontact"
+        "/crm"
       ],
       "intent": "Look up contact info, remember details about people, manage CRM entries, log interactions",
       "not_intent": "Sending messages to contacts",
@@ -320,11 +420,30 @@
       "marketplace": {
         "icon": "contacts",
         "tagline": "Personal CRM with tiered contacts and follow-up reminders",
-        "category": "productivity",
-        "long_description": "Track your professional network right from WhatsApp. Add contacts, assign importance tiers, log interactions, and get nudged when it's time to follow up. Fuzzy name search and tagging make it easy to find anyone in seconds."
+        "category": "productivity"
       },
       "files": [
         "plugins/contacts.py"
+      ]
+    },
+    "devops": {
+      "name": "devops",
+      "version": "1.0.0",
+      "description": "Run and monitor data pipelines.",
+      "commands": [
+        "/devops"
+      ],
+      "primitives": [
+        "/devops \u2014 Show help",
+        "/devops run <pipeline> [args] \u2014 Run a pipeline (reddit, x, youtube)",
+        "/devops status \u2014 Check if pipelines ran today",
+        "/devops schedule \u2014 Show scheduled pipeline times",
+        "/devops logs [N] [error|warning] \u2014 Recent error/warning logs",
+        "/devops run reddit \u2014 skip-scrape",
+        "/devops run youtube \u2014 limit 3"
+      ],
+      "files": [
+        "plugins/devops.py"
       ]
     },
     "dm_onboarding": {
@@ -372,6 +491,199 @@
       },
       "files": [
         "plugins/faq.py"
+      ]
+    },
+    "finance": {
+      "name": "finance",
+      "version": "2.0.0",
+      "description": "Beancount recording, maintenance, audit & invoicing \u2014 all under /finance",
+      "commands": [
+        "/finance"
+      ],
+      "primitives": [
+        "/finance [cupbots|personal] [income|expenses] \u2014 Scan & process unprocessed invoices",
+        "/finance expense [personal] <desc> \u2014 Add expense (attach receipt)",
+        "/finance income [personal] <desc> \u2014 Record income",
+        "/finance transfer [personal] <desc> \u2014 Inter-account transfer",
+        "/finance ar [personal] <desc> \u2014 Record invoice sent (AR entry)",
+        "/finance payment [personal] <desc> \u2014 Record payment received (clear AR)",
+        "/finance void [personal] <search> \u2014 Void an entry",
+        "/finance validate [personal] \u2014 Run bean-check",
+        "/finance fxsync \u2014 Fetch missing FX rates",
+        "/finance summary [personal] \u2014 Regenerate journal summary",
+        "/finance reconcile [personal] <account> <balance> <currency> \u2014 Reconcile",
+        "/finance duplicates [personal] \u2014 Scan for duplicate entries",
+        "/finance invoice <client> <items> [--account NAME] [--proposal REF] \u2014 Create invoice",
+        "/finance invoice list [client] \u2014 List invoices",
+        "/finance invoice status <id> \u2014 Check invoice status",
+        "/finance invoice accounts \u2014 List Stripe accounts"
+      ],
+      "write_commands": [
+        "/finance"
+      ],
+      "files": [
+        "plugins/finance.py"
+      ]
+    },
+    "finance_audit": {
+      "name": "finance_audit",
+      "version": "1.0.0",
+      "description": "Auditing and reconciliation tools.",
+      "commands": [
+        "/reconcile",
+        "/trial",
+        "/duplicates"
+      ],
+      "primitives": [
+        "/reconcile [personal] <account> <balance> <currency> \u2014 Compare book vs expected",
+        "/trial [personal] [date] \u2014 Trial balance",
+        "/duplicates [personal] \u2014 Scan for duplicate entries"
+      ],
+      "files": [
+        "plugins/finance_audit.py"
+      ]
+    },
+    "finance_fire": {
+      "name": "finance_fire",
+      "version": "2.0.0",
+      "description": "Financial queries, reports & FIRE tracking \u2014 all under /money",
+      "commands": [
+        "/money"
+      ],
+      "primitives": [
+        "/money \u2014 Master FIRE dashboard",
+        "/money fire \u2014 FIRE metrics and projections",
+        "/money balances \u2014 All balances by custodian",
+        "/money tiers \u2014 Cash tier breakdown",
+        "/money budget \u2014 Expense budget \u00d7 FIRE multipliers",
+        "/money growth \u2014 Net worth growth chart",
+        "/money scenarios <change> \u2014 What-if scenarios",
+        "/money networth [date] \u2014 Net worth (both ledgers)",
+        "/money search [personal] <query> \u2014 AI journal search",
+        "/money query [personal] <BQL> \u2014 Raw BQL query",
+        "/money bal [personal] [filter] \u2014 Account balances",
+        "/money accounts [personal] [filter] \u2014 Chart of accounts",
+        "/money pnl [personal] [period] \u2014 Profit & Loss",
+        "/money bs [personal] [date] \u2014 Balance Sheet",
+        "/money cashflow [personal] [period] \u2014 Cash flow",
+        "/money fxgain [personal] [date] \u2014 FX gain/loss",
+        "/money receivables \u2014 Outstanding receivables",
+        "/money payables [personal] \u2014 Outstanding liabilities",
+        "/money annual [personal] [year] \u2014 Annual report",
+        "/money tax [year] \u2014 Tax summary (MY)",
+        "/money taxrelief [year] \u2014 Tax relief (MY)",
+        "/money trial [personal] [date] \u2014 Trial balance",
+        "/money wise [personal|cupbots] [period] \u2014 Wise queries",
+        "/money invoice list [client] \u2014 List invoices",
+        "/money invoice status <id> \u2014 Check invoice status"
+      ],
+      "files": [
+        "plugins/finance_fire.py"
+      ]
+    },
+    "finance_maintenance": {
+      "name": "finance_maintenance",
+      "version": "1.0.0",
+      "description": "Journal maintenance tools.",
+      "commands": [
+        "/validate",
+        "/fxsync",
+        "/void",
+        "/summary"
+      ],
+      "primitives": [
+        "/validate [personal] \u2014 Run bean-check validation",
+        "/fxsync \u2014 Fetch missing FX rates",
+        "/void [personal] <search> \u2014 Void an entry (reversing entry)",
+        "/summary [personal] \u2014 Regenerate journal summary"
+      ],
+      "files": [
+        "plugins/finance_maintenance.py"
+      ]
+    },
+    "finance_query": {
+      "name": "finance_query",
+      "version": "1.0.0",
+      "description": "Beancount ledger queries.",
+      "commands": [
+        "/fbal",
+        "/fsearch",
+        "/fquery",
+        "/faccount"
+      ],
+      "primitives": [
+        "/fbal [personal] [filter] \u2014 Show account balances",
+        "/fsearch [personal] <query> \u2014 AI-powered journal search",
+        "/fquery [personal] <BQL> \u2014 Run raw BQL query",
+        "/faccount [personal] [filter] \u2014 List chart of accounts"
+      ],
+      "files": [
+        "plugins/finance_query.py"
+      ]
+    },
+    "finance_reports": {
+      "name": "finance_reports",
+      "version": "1.0.0",
+      "description": "Beancount financial reports.",
+      "commands": [
+        "/pnl",
+        "/bs",
+        "/cashflow",
+        "/fxgain",
+        "/receivables",
+        "/payables",
+        "/annualreport",
+        "/taxrelief",
+        "/taxsummary"
+      ],
+      "primitives": [
+        "/pnl [personal] [period] \u2014 Profit & Loss (jan, q1, ytd, last-3m, 2025, 2025-03...)",
+        "/bs [personal] [date] \u2014 Balance Sheet",
+        "/cashflow [personal] [period] \u2014 Cash flow summary (same periods as /pnl)",
+        "/fxgain [personal] [date] \u2014 FX gain/loss report",
+        "/receivables \u2014 Outstanding receivables",
+        "/payables [personal] \u2014 Outstanding liabilities",
+        "/annualreport [personal] [year] \u2014 Annual report (balance sheet + P&L)",
+        "/taxrelief [year] \u2014 Malaysian tax relief summary (personal ledger, LHDN)",
+        "/taxsummary [year] \u2014 Full income tax summary for BE form filing (personal)"
+      ],
+      "files": [
+        "plugins/finance_reports.py"
+      ]
+    },
+    "finance_wise": {
+      "name": "finance_wise",
+      "version": "1.0.0",
+      "description": "Wise account queries.",
+      "commands": [
+        "/wise"
+      ],
+      "primitives": [
+        "/wise [personal|cupbots] [period] \u2014 Show balances + recent transactions",
+        "/wise balances [personal|cupbots] \u2014 Show balances only",
+        "/wise txns [personal|cupbots] [period] \u2014 Show transactions",
+        "/wise ask [personal|cupbots] <question> \u2014 AI-powered Wise account query"
+      ],
+      "files": [
+        "plugins/finance_wise.py"
+      ]
+    },
+    "heartbeat": {
+      "name": "heartbeat",
+      "version": "1.0.0",
+      "description": "Heartbeat Agent",
+      "commands": [
+        "/think",
+        "/heartbeat",
+        "/snapshot"
+      ],
+      "primitives": [
+        "/think [question] \u2014 Run the agent now (optional: ask it something specific)",
+        "/heartbeat \u2014 Show when the next heartbeat runs",
+        "/snapshot \u2014 Record net worth snapshot now (auto-runs 1st of month)"
+      ],
+      "files": [
+        "plugins/heartbeat.py"
       ]
     },
     "ideas": {
@@ -772,26 +1084,23 @@
     },
     "note": {
       "name": "note",
-      "description": "Create and list zk-format markdown notes",
-      "version": "1.0.0",
+      "description": "Personal knowledge hub \u2014 notes, ideas, and bookmarks",
+      "version": "2.0.0",
       "author": "CupBots",
       "commands": [
-        "/note",
-        "/notes"
+        "/note"
       ],
       "write_commands": [
         "/note"
       ],
-      "intent": "Create or search personal notes, quick memos, zettelkasten entries",
-      "not_intent": "Bookmarks, ideas, or knowledge base documents",
+      "intent": "Create notes, capture ideas, save bookmarks \u2014 personal knowledge management",
       "config": [],
       "free": true,
       "bundled": true,
       "marketplace": {
         "icon": "edit_note",
-        "tagline": "Create Zettelkasten-style notes from WhatsApp",
-        "category": "productivity",
-        "long_description": "Capture thoughts as structured markdown notes in Zettelkasten format. Each note gets a timestamped filename and frontmatter, ready for your PKM workflow. Browse recent notes without leaving the chat."
+        "tagline": "Personal knowledge hub \u2014 notes, ideas, and bookmarks from chat",
+        "category": "productivity"
       },
       "files": [
         "plugins/note.py"
@@ -921,7 +1230,12 @@
       "version": "0.1.0",
       "author": "CupBots",
       "commands": [
-        "/report"
+        "/report",
+        "/report demo",
+        "/report list",
+        "/report status",
+        "/report show",
+        "/report preview"
       ],
       "write_commands": [
         "/report"
@@ -942,7 +1256,8 @@
         "/report archive --id <id>                  \u2014 soft-delete (hide from list)",
         "/report restore --id <id>                  \u2014 undo archive",
         "/report delete --id <id>                   \u2014 permanent delete",
-        "/report list [--all]                       \u2014 list reports (--all includes archived)"
+        "/report list [--all]                       \u2014 list reports (--all includes archived)",
+        "/report demo                               \u2014 build a pre-made demo instantly (no AI)"
       ],
       "intent": "Create, draft, build, edit, or preview professional consultant-grade reports (sustainability, annual, ESG). Generate PDF from wiki content or uploaded markdown/PDF/DOCX. Tweak sections with plain language. Change brand palette or signatory title.",
       "not_intent": "Sending documents via email, creating calendar events, editing wiki entities directly",

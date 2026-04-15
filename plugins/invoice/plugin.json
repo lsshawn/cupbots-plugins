@@ -5,14 +5,16 @@
   "author": "CupBots",
   "commands": [
     "/invoice",
+    "/invoice send",
     "/invoice list",
     "/invoice status"
   ],
   "write_commands": [
-    "/invoice"
+    "/invoice",
+    "/invoice send"
   ],
   "intent": "Create Stripe invoices, find or create clients, send invoices with line items",
-  "config": [],
+  "config": ["auto_send"],
   "pip_dependencies": ["stripe"],
   "free": true,
   "bundled": false,

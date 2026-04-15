@@ -1,23 +1,34 @@
 # note
 
-Create and list zk-format markdown notes
+Personal knowledge hub — notes, ideas, and bookmarks under /note.
 
 ## Commands
-- `/note` (WRITE)
-- `/notes`
-
-## Intent
-USE FOR: Create or search personal notes, quick memos, zettelkasten entries
-NOT FOR: Bookmarks, ideas, or knowledge base documents
+- `/note`
 
 ## Primitives
 ```
-/note <title> <body> — Create a zk note
-/note <title> — Create a note (body via reply or empty)
-/notes — Show recent notes
+/note <title> [-- body] — Create a zettelkasten note (#tags supported)
+/note list — Show recent notes
+/note idea <description> — Capture an idea
+/note ideas — List this year's ideas
+/note save <url> [title] [#tag] — Bookmark a link
+/note bookmarks — List unread bookmarks
+/note unsave <url or keyword> — Remove a bookmark
+```
+
+## Examples
+```
+/note Meeting recap -- discussed Q3 targets #work
+/note Quick thought #random
+/note list                          Recent notes
+/note idea AI tool that auto-generates invoices
+/note ideas                         This year's ideas
+/note save https://example.com Great article #dev
+/note bookmarks                     Unread bookmarks
+/note unsave example.com            Remove bookmark
 ```
 
 ## Rules
 - Do NOT invent subcommands — only use commands listed above
-- For write commands, use the EXACT flag syntax from Primitives above
-- Respect explicit timezones in user input
+- Notes support #tags inline and `--` or `—` to separate title from body
+- Reply to a message with `/note <title>` to use the quoted text as body

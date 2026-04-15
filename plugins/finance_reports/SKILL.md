@@ -1,31 +1,18 @@
 # finance_reports
 
-Beancount financial reports.
+Financial reports. Access via `/money pnl`, `/money bs`, `/money cashflow`, etc.
 
-## Commands
-- `/pnl`
-- `/bs`
-- `/cashflow`
-- `/fxgain`
-- `/receivables`
-- `/payables`
-- `/annualreport`
-- `/taxrelief`
-- `/taxsummary`
-
-## Primitives
-```
-/pnl [personal] [period] — Profit & Loss (jan, q1, ytd, last-3m, 2025, 2025-03...)
-/bs [personal] [date] — Balance Sheet
-/cashflow [personal] [period] — Cash flow summary (same periods as /pnl)
-/fxgain [personal] [date] — FX gain/loss report
-/receivables — Outstanding receivables
-/payables [personal] — Outstanding liabilities
-/annualreport [personal] [year] — Annual report (balance sheet + P&L)
-/taxrelief [year] — Malaysian tax relief summary (personal ledger, LHDN)
-/taxsummary [year] — Full income tax summary for BE form filing (personal)
-```
+## Commands (standalone, prefer /money variants)
+- `/pnl` → use `/money pnl`
+- `/bs` → use `/money bs`
+- `/cashflow` → use `/money cashflow`
+- `/fxgain` → use `/money fxgain`
+- `/receivables` → use `/money receivables`
+- `/payables` → use `/money payables`
+- `/annualreport` → use `/money annual`
+- `/taxrelief` → use `/money taxrelief`
+- `/taxsummary` → use `/money tax`
 
 ## Rules
-- Do NOT invent subcommands — only use commands listed above
-- Respect explicit timezones in user input
+- Relay full report output to the user — do NOT summarize
+- `/money tax` and `/money taxrelief` are Malaysia-specific, personal ledger only

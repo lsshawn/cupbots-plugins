@@ -1,26 +1,38 @@
 # invoice
 
-Stripe invoicing — create and send invoices to clients
+Stripe invoicing. Create and send invoices from chat.
 
 ## Commands
-- `/invoice` (WRITE)
-- `/invoice list`
-- `/invoice status`
+- `/invoice <client> <line-items> [--account NAME] [--proposal REF] [--draft]` — Create invoice
+- `/invoice send <invoice-id>` — Send a draft invoice email
+- `/invoice list [client]` — List recent invoices
+- `/invoice status <invoice-id>` — Check invoice status from Stripe
+- `/invoice accounts` — List configured Stripe accounts
 
-## Intent
-USE FOR: Create Stripe invoices, find or create clients, send invoices with line items
+## Flags
+- `--draft` — Create as finalized draft (not emailed). Use `/invoice send` to email later.
+- `--account NAME` — Stripe account to use (default: client's previous account or 'default').
+- `--proposal REF` — Attach a proposal reference to the invoice footer.
 
-## Primitives
-```
-/invoice <client> <line-items> [--account NAME] [--proposal REF] — Create & send invoice
-/invoice list [client] — List recent invoices
-/invoice status <invoice-id> — Check invoice status
-/invoice accounts — List configured Stripe accounts
-/invoice "Acme Corp" Web development 3000 USD, Design 1500 USD — proposal PROP-2024-003
-/invoice acme@example.com Web dev 5000 — account agency
-```
+## Config (plugin_settings.invoice)
+- `auto_send` — `true` (default) sends invoice email immediately. Set to `false` to create drafts by default.
+
+## Line items format
+Comma-separated: `<description> <amount> [currency]`
 
 ## Rules
-- Do NOT invent subcommands — only use commands listed above
-- For write commands, use the EXACT flag syntax from Primitives above
-- Respect explicit timezones in user input
+- Use exact flag syntax with double-dash: `--account`, `--proposal`, `--draft`
+- Client can be an email, a quoted name, or a single-word name
+- When `auto_send: false`, all invoices are created as drafts unless explicitly sent with `/invoice send`
+- `--draft` flag always creates a draft regardless of `auto_send` setting
+
+## Examples
+```
+/invoice acme@example.com API integration 5000, Monthly hosting 200
+/invoice acme@example.com API integration 5000 --draft
+/invoice send inv_abc123
+/invoice "Acme Corp" Web development 3000 USD --proposal PROP-2024-003
+/invoice acme@example.com Web dev 5000 --account agency
+/invoice list
+/invoice status inv_abc123
+```

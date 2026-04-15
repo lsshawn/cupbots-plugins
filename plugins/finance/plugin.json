@@ -1,16 +1,29 @@
 {
   "name": "finance",
-  "version": "1.0.0",
-  "description": "Beancount journal recording",
+  "version": "2.0.0",
+  "description": "Beancount recording, maintenance, audit & invoicing — all under /finance",
   "commands": [
     "/finance"
   ],
   "primitives": [
-    "/finance [cupbots|personal] [income|expenses] \u2014 Scan & process unprocessed invoices",
-    "/finance expense [personal] <desc> \u2014 Add expense (attach receipt)",
-    "/finance income [personal] <desc> \u2014 Record income (attach invoice)",
-    "/finance transfer [personal] <desc> \u2014 Inter-account transfer",
-    "/finance ar [personal] <desc> \u2014 Record invoice sent (AR entry)",
-    "/finance payment [personal] <desc> \u2014 Record payment received (clear AR)"
+    "/finance [cupbots|personal] [income|expenses] — Scan & process unprocessed invoices",
+    "/finance expense [personal] <desc> — Add expense (attach receipt)",
+    "/finance income [personal] <desc> — Record income",
+    "/finance transfer [personal] <desc> — Inter-account transfer",
+    "/finance ar [personal] <desc> — Record invoice sent (AR entry)",
+    "/finance payment [personal] <desc> — Record payment received (clear AR)",
+    "/finance void [personal] <search> — Void an entry",
+    "/finance validate [personal] — Run bean-check",
+    "/finance fxsync — Fetch missing FX rates",
+    "/finance summary [personal] — Regenerate journal summary",
+    "/finance reconcile [personal] <account> <balance> <currency> — Reconcile",
+    "/finance duplicates [personal] — Scan for duplicate entries",
+    "/finance invoice <client> <items> [--account NAME] [--proposal REF] — Create invoice",
+    "/finance invoice list [client] — List invoices",
+    "/finance invoice status <id> — Check invoice status",
+    "/finance invoice accounts — List Stripe accounts"
+  ],
+  "write_commands": [
+    "/finance"
   ]
 }

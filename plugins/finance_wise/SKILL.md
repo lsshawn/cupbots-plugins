@@ -1,18 +1,6 @@
 # finance_wise
 
-Wise account queries.
+Wise account queries. Access via `/money wise`.
 
-## Commands
-- `/wise`
-
-## Primitives
-```
-/wise [personal|cupbots] [period] — Show balances + recent transactions
-/wise balances [personal|cupbots] — Show balances only
-/wise txns [personal|cupbots] [period] — Show transactions
-/wise ask [personal|cupbots] <question> — AI-powered Wise account query
-```
-
-## Rules
-- Do NOT invent subcommands — only use commands listed above
-- Respect explicit timezones in user input
+## Commands (standalone, prefer /money wise)
+- `/wise` → use `/money wise`

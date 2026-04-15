@@ -124,11 +124,21 @@ The operating currency is EUR. The ledger uses beancount 3 format.
 
 To answer the user's query:
 1. First read {summary_path} to understand the account structure
-2. Then read {journal_path} and search for relevant entries
+2. Then search {journal_path} for relevant entries. The journal is in chronological order (oldest first).
+   - For "last/recent/latest" queries: read from the END of the file first, then work backwards. Use Grep to find all matches, then take the last N.
+   - For "first/earliest" queries: read from the start.
 3. Present the results clearly — show matching transactions, totals, or analysis as requested
 
-Format your response as plain text. Use fixed-width alignment for tables.
-Keep it concise but complete. Show actual transaction entries when the user is searching for specific items."""
+Format your response as plain text.
+IMPORTANT: Always show full beancount journal entries in their original format, including:
+date, payee, narration, metadata (id, etc.), account postings with amounts.
+Example format:
+2026-03-30 * "Rimbarapi Sdn Bhd" "Petrol - pump 9, 32.690L @ RM3.870/ltr"
+  id: "exp-20260330-581577"
+  Expenses:Travel:Transport:Petrol  65.05 MYR
+  Liabilities:Out-of-pocket        -65.05 MYR
+
+Never summarize entries into just dates and amounts — the full entry IS the answer."""
 
     try:
         result = await run_claude_cli(

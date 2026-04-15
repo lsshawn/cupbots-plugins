@@ -1,21 +1,13 @@
 # finance_query
 
-Beancount ledger queries.
+Beancount ledger queries. Access via `/money search`, `/money query`, `/money bal`, `/money accounts`.
 
-## Commands
-- `/fbal`
-- `/fsearch`
-- `/fquery`
-- `/faccount`
-
-## Primitives
-```
-/fbal [personal] [filter] — Show account balances
-/fsearch [personal] <query> — AI-powered journal search
-/fquery [personal] <BQL> — Run raw BQL query
-/faccount [personal] [filter] — List chart of accounts
-```
+## Commands (standalone, prefer /money variants)
+- `/fbal` → use `/money bal`
+- `/fsearch` → use `/money search`
+- `/fquery` → use `/money query`
+- `/faccount` → use `/money accounts`
 
 ## Rules
-- Do NOT invent subcommands — only use commands listed above
-- Respect explicit timezones in user input
+- `/money search` accepts full natural language — pass the ENTIRE user query as-is
+- CRITICAL: Relay the full output verbatim — do NOT summarize or reformat

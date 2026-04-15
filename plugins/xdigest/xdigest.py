@@ -1,24 +1,25 @@
 """
-X Digest — AI market intelligence from your X/Twitter list.
+X Digest — AI market intelligence from your X/Twitter lists.
 
 Commands:
   /xdigest                         — Show help
-  /xdigest run                     — Run digest now
+  /xdigest run                     — Run digest now (all lists)
+  /xdigest run <list_id>           — Run digest for one list
   /xdigest history                 — Show recent digests
+  /xdigest cookies                 — Paste plaintext cookies.txt to set up auth
+  /xdigest lists                   — Show configured list IDs
 
-Setup: Configure via /config xdigest (requires X list ID and browser cookies).
+Setup: Configure via /config xdigest or /xdigest cookies.
 Schedule: /schedule add "daily 6am" /xdigest run
 
 Examples:
   /xdigest run
+  /xdigest cookies
   /xdigest history
 """
 
 import json
-import os
-import re
 from datetime import datetime
-from pathlib import Path
 
 from cupbots.helpers.db import get_plugin_db, resolve_plugin_setting
 from cupbots.helpers.logger import get_logger
@@ -26,7 +27,6 @@ from cupbots.helpers.logger import get_logger
 log = get_logger("xdigest")
 
 PLUGIN_NAME = "xdigest"
-WA_API_URL = os.environ.get("WA_API_URL", "http://127.0.0.1:3100")
 
 ANALYSIS_PROMPT = """You are a Senior Venture Architect and Indie Product Strategist specializing in "Signal Extraction." Your task is to transform raw social data from an X/Twitter list into a Market Opportunity Map that identifies patterns, validated pain points, and distribution levers.
 
@@ -143,6 +143,7 @@ def create_tables(conn):
         CREATE TABLE IF NOT EXISTS digests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             company_id TEXT NOT NULL DEFAULT '',
+            list_id TEXT NOT NULL DEFAULT '',
             tweet_count INTEGER NOT NULL DEFAULT 0,
             last_tweet_id TEXT NOT NULL DEFAULT '',
             analysis TEXT NOT NULL DEFAULT '',
@@ -150,6 +151,11 @@ def create_tables(conn):
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
+    # Migration: add list_id column if missing (existing installs)
+    try:
+        conn.execute("SELECT list_id FROM digests LIMIT 1")
+    except Exception:
+        conn.execute("ALTER TABLE digests ADD COLUMN list_id TEXT NOT NULL DEFAULT ''")
 
 
 def _db():
@@ -184,7 +190,7 @@ async def _scrape_list(list_id: str, cookies_json: str, last_tweet_id: str = "")
         except Exception:
             if "/login" in page.url or "/i/flow/login" in page.url:
                 await browser.close()
-                raise RuntimeError("X session expired — update cookies via /config xdigest XDIGEST_COOKIES")
+                raise RuntimeError("X session expired — run /xdigest cookies with fresh cookies")
             await browser.close()
             raise RuntimeError(f"No tweets loaded. URL: {page.url}")
 
@@ -251,6 +257,32 @@ def _format_tweets(tweets: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _convert_cookies_txt(text: str) -> dict:
+    """Convert Netscape cookies.txt plaintext to Playwright storage_state dict."""
+    cookies = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 7:
+            continue
+        domain, _flag, path, secure, expires, name, value = parts[:7]
+        cookies.append({
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": path,
+            "expires": float(expires) if expires != "0" else -1,
+            "httpOnly": False,
+            "secure": secure == "TRUE",
+            "sameSite": "None" if secure == "TRUE" else "Lax",
+        })
+    if not cookies:
+        raise ValueError("No valid cookie lines found. Paste the full cookies.txt content.")
+    return {"cookies": cookies, "origins": []}
+
+
 def _extract_summary(analysis: str) -> str:
     lines = analysis.strip().splitlines()
     in_summary = False
@@ -271,36 +303,74 @@ def _extract_summary(analysis: str) -> str:
 # Core logic
 # ---------------------------------------------------------------------------
 
-async def _run_digest(company_id: str) -> str:
-    list_id = resolve_plugin_setting(PLUGIN_NAME, "xdigest_list_id") or ""
+def _get_list_ids() -> list[str]:
+    """Resolve list IDs from config. Supports both xdigest_list_ids (list)
+    and legacy xdigest_list_id (single string)."""
+    from cupbots.config import get_config
+    settings = (get_config().get("plugin_settings", {}) or {}).get(PLUGIN_NAME, {}) or {}
+    ids = settings.get("xdigest_list_ids")
+    if isinstance(ids, list):
+        return [str(i) for i in ids if i]
+    # Backwards compat: single xdigest_list_id
+    single = settings.get("xdigest_list_id")
+    if single:
+        return [str(single)]
+    return []
+
+
+async def _run_digest(company_id: str, target_list_id: str = "") -> str:
+    list_ids = _get_list_ids()
     cookies = resolve_plugin_setting(PLUGIN_NAME, "xdigest_cookies") or ""
-    if not list_id or not cookies:
+    if not list_ids or not cookies:
         return ("Configure X digest first:\n"
-                "/config xdigest XDIGEST_LIST_ID <list_id>\n"
-                "/config xdigest XDIGEST_COOKIES <json>")
+                "1. /xdigest cookies  — paste your browser cookies\n"
+                "2. /config xdigest xdigest_list_ids [\"<id1>\", \"<id2>\"]")
 
-    # Get last tweet ID for incremental scraping
-    last = _db().execute(
-        "SELECT last_tweet_id FROM digests WHERE company_id = ? ORDER BY id DESC LIMIT 1",
-        (company_id,),
-    ).fetchone()
-    last_tweet_id = last["last_tweet_id"] if last else ""
+    if target_list_id:
+        if target_list_id not in list_ids:
+            return f"List {target_list_id} not in configured lists: {', '.join(list_ids)}"
+        list_ids = [target_list_id]
 
-    try:
-        tweets = await _scrape_list(list_id, cookies, last_tweet_id)
-    except Exception as e:
-        return f"Scraping failed: {e}"
+    all_tweets = []
+    errors = []
+    for lid in list_ids:
+        # Get last tweet ID per list for incremental scraping
+        last = _db().execute(
+            "SELECT last_tweet_id FROM digests WHERE company_id = ? AND list_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (company_id, lid),
+        ).fetchone()
+        last_tweet_id = last["last_tweet_id"] if last else ""
 
-    if not tweets:
-        return "No new tweets since last scrape."
+        try:
+            tweets = await _scrape_list(lid, cookies, last_tweet_id)
+            if tweets:
+                all_tweets.extend(tweets)
+                # Save newest ID per list
+                _db().execute(
+                    "INSERT INTO digests (company_id, list_id, tweet_count, last_tweet_id, analysis, published_url) "
+                    "VALUES (?, ?, ?, ?, '', '')",
+                    (company_id, lid, len(tweets), tweets[0]["id"]),
+                )
+                _db().commit()
+        except Exception as e:
+            errors.append(f"List {lid}: {e}")
+            log.warning("Scrape failed for list %s: %s", lid, e)
 
-    tweets_text = _format_tweets(tweets)
+    if not all_tweets:
+        msg = "No new tweets since last scrape."
+        if errors:
+            msg += "\n\nErrors:\n" + "\n".join(errors)
+        return msg
+
+    tweets_text = _format_tweets(all_tweets)
 
     # Analyze
     try:
         from cupbots.helpers.llm import ask_llm
         user_msg = (f"X List Analysis\nDate: {datetime.now().strftime('%Y-%m-%d')}\n"
-                    f"Tweet count: {len(tweets)}\n\nTWEETS:\n{tweets_text}")
+                    f"Lists: {', '.join(list_ids)}\n"
+                    f"Tweet count: {len(all_tweets)}\n\nTWEETS:\n{tweets_text}")
         analysis = await ask_llm(ANALYSIS_PROMPT + "\n\n" + user_msg, max_tokens=12000)
     except Exception as e:
         return f"Analysis failed: {e}"
@@ -317,17 +387,20 @@ async def _run_digest(company_id: str) -> str:
     except Exception as e:
         log.warning("Publish failed: %s", e)
 
-    # Save
-    newest_id = tweets[0]["id"] if tweets else last_tweet_id
-    _db().execute(
-        "INSERT INTO digests (company_id, tweet_count, last_tweet_id, analysis, published_url) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (company_id, len(tweets), newest_id, analysis[:10000], published_url),
-    )
+    # Update the scrape-only rows with analysis
+    for lid in list_ids:
+        _db().execute(
+            "UPDATE digests SET analysis = ?, published_url = ? "
+            "WHERE company_id = ? AND list_id = ? AND analysis = '' "
+            "ORDER BY id DESC LIMIT 1",
+            (analysis[:10000], published_url, company_id, lid),
+        )
     _db().commit()
 
     summary = _extract_summary(analysis)
-    parts = [f"X Digest — {len(tweets)} tweets analyzed"]
+    parts = [f"X Digest — {len(all_tweets)} tweets from {len(list_ids)} list(s)"]
+    if errors:
+        parts.append(f"\nWarnings:\n" + "\n".join(errors))
     if summary:
         parts.append(f"\n{summary[:500]}")
     if published_url:
@@ -357,16 +430,64 @@ async def handle_command(msg, reply) -> bool:
         return True
 
     if sub == "run":
+        target_list_id = args[1] if len(args) > 1 else ""
+        list_ids = _get_list_ids()
+        count = len(list_ids)
+        label = f"list {target_list_id}" if target_list_id else f"{count} list(s)"
         await reply.send_typing()
-        await reply.reply_text("Scraping X list... this may take a few minutes.")
-        result = await _run_digest(company_id)
+        await reply.reply_text(f"Scraping {label}... this may take a few minutes.")
+        result = await _run_digest(company_id, target_list_id)
         await reply.reply_text(result)
+        return True
+
+    if sub == "cookies":
+        # The rest of msg.text after "/xdigest cookies" is the pasted cookies.txt
+        raw = msg.text
+        # Strip the command prefix to get cookie content
+        idx = raw.lower().find("cookies")
+        cookie_text = raw[idx + len("cookies"):].strip() if idx >= 0 else ""
+
+        if not cookie_text:
+            await reply.reply_text(
+                "Paste your cookies.txt content after the command:\n\n"
+                "/xdigest cookies\n<paste cookies.txt content here>\n\n"
+                "To export: install 'Get cookies.txt LOCALLY' browser extension, "
+                "go to x.com while logged in, export cookies."
+            )
+            return True
+
+        try:
+            storage_state = _convert_cookies_txt(cookie_text)
+        except ValueError as e:
+            await reply.reply_text(str(e))
+            return True
+
+        from cupbots.helpers.db import set_plugin_config
+        set_plugin_config(PLUGIN_NAME, "xdigest_cookies", json.dumps(storage_state))
+        x_cookies = [c["name"] for c in storage_state["cookies"] if ".x.com" in c.get("domain", "")]
+        await reply.reply_text(
+            f"Cookies saved — {len(storage_state['cookies'])} cookies converted "
+            f"({len(x_cookies)} from x.com).\n\n"
+            f"Key cookies: {', '.join(x_cookies[:5])}"
+            + (f"... +{len(x_cookies)-5} more" if len(x_cookies) > 5 else "")
+        )
+        return True
+
+    if sub == "lists":
+        list_ids = _get_list_ids()
+        if not list_ids:
+            await reply.reply_text("No lists configured.\n/config xdigest xdigest_list_ids [\"<id>\"]")
+            return True
+        lines = ["Configured X lists:\n"]
+        for lid in list_ids:
+            lines.append(f"  x.com/i/lists/{lid}")
+        await reply.reply_text("\n".join(lines))
         return True
 
     if sub == "history":
         rows = _db().execute(
-            "SELECT id, tweet_count, published_url, created_at FROM digests "
-            "WHERE company_id = ? ORDER BY created_at DESC LIMIT 10",
+            "SELECT id, list_id, tweet_count, published_url, created_at FROM digests "
+            "WHERE company_id = ? AND analysis != '' ORDER BY created_at DESC LIMIT 10",
             (company_id,),
         ).fetchall()
         if not rows:
@@ -375,7 +496,8 @@ async def handle_command(msg, reply) -> bool:
         lines = ["Recent X digests:\n"]
         for r in rows:
             url = f" — {r['published_url']}" if r["published_url"] else ""
-            lines.append(f"#{r['id']} {r['created_at'][:16]} ({r['tweet_count']} tweets){url}")
+            lid = f" [list:{r['list_id'][-6:]}]" if r["list_id"] else ""
+            lines.append(f"#{r['id']} {r['created_at'][:16]} ({r['tweet_count']} tweets){lid}{url}")
         await reply.reply_text("\n".join(lines))
         return True
 

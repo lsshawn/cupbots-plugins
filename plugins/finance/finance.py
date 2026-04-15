@@ -1,5 +1,5 @@
 """
-Finance — Beancount journal recording
+Finance — /finance command hub for all write/maintenance operations.
 
 Commands:
   /finance [cupbots|personal] [income|expenses]  — Scan & process unprocessed invoices
@@ -8,6 +8,16 @@ Commands:
   /finance transfer [personal] <desc>    — Inter-account transfer
   /finance ar [personal] <desc>          — Record invoice sent (AR entry)
   /finance payment [personal] <desc>     — Record payment received (clear AR)
+  /finance void [personal] <search>      — Void an entry (reversing entry)
+  /finance validate [personal]           — Run bean-check
+  /finance fxsync                        — Fetch missing FX rates
+  /finance summary [personal]            — Regenerate journal summary
+  /finance reconcile [personal] <acct> <bal> <cur> — Reconcile account
+  /finance duplicates [personal]         — Scan for duplicate entries
+  /finance invoice <client> <items>      — Create & send Stripe invoice
+  /finance invoice list [client]         — List invoices
+  /finance invoice status <id>           — Check invoice status
+  /finance invoice accounts              — List Stripe accounts
 """
 
 import asyncio
@@ -15,6 +25,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from copy import copy
 from datetime import datetime
 from pathlib import Path
 
@@ -46,6 +57,20 @@ COMMANDS = (
 )
 
 SUBCOMMANDS = ("expense", "income", "transfer", "ar", "payment")
+
+# Map /finance subcommands to (target_plugin_module, rewritten_command)
+_DELEGATED_SUBCOMMANDS = {
+    # finance_maintenance
+    "void": ("finance_maintenance", "void"),
+    "validate": ("finance_maintenance", "validate"),
+    "fxsync": ("finance_maintenance", "fxsync"),
+    "summary": ("finance_maintenance", "summary"),
+    # finance_audit
+    "reconcile": ("finance_audit", "reconcile"),
+    "duplicates": ("finance_audit", "duplicates"),
+    # invoice
+    "invoice": ("invoice", "invoice"),
+}
 
 
 def _get_ledger_paths(ledger_type: str) -> dict:
@@ -707,7 +732,8 @@ async def _handle_recording_cross_platform(msg, reply, record_type: str) -> None
         ledger_type = "personal"
         text = ""
 
-    if not text:
+    has_attachment = bool(getattr(msg, "media_path", None))
+    if not text and not has_attachment:
         examples = {
             "expense": f"/finance {record_type} [personal] <description>\n  /finance {record_type} 50 EUR groceries\n  /finance {record_type} personal 200 MYR electricity bill",
             "income": f"/finance {record_type} [personal] <description>\n  /finance {record_type} 5000 USD from Third-Idea",
@@ -720,11 +746,12 @@ async def _handle_recording_cross_platform(msg, reply, record_type: str) -> None
 
     await reply.send_typing()
 
-    # Parse with LLM (no attachment support for WhatsApp -- text only)
+    # Parse with LLM — pass attachment if available (receipt image, invoice PDF)
+    attachment = Path(msg.media_path) if getattr(msg, "media_path", None) else None
     if record_type == "expense":
-        parsed = await _parse_expense_with_llm(text, ledger_type)
+        parsed = await _parse_expense_with_llm(text, ledger_type, attachment_path=attachment)
     else:
-        parsed = await _parse_recording_with_llm(text, ledger_type, record_type)
+        parsed = await _parse_recording_with_llm(text, ledger_type, record_type, attachment_path=attachment)
 
     if not parsed:
         await reply.reply_error(f"Failed to parse {record_type}. Try again with more details.")
@@ -850,8 +877,30 @@ async def _handle_finance_scan(msg, reply) -> None:
         await reply.reply_text(status)
 
 
+async def _delegate(sub: str, msg, reply, remaining_args: list) -> bool:
+    """Delegate a /finance subcommand to another plugin by rewriting msg.command/args."""
+    target_module, target_cmd = _DELEGATED_SUBCOMMANDS[sub]
+
+    try:
+        import importlib
+        mod = importlib.import_module(f"plugins.{target_module}.{target_module}")
+    except ImportError:
+        await reply.reply_error(f"Plugin {target_module} not available.")
+        return True
+
+    handler = getattr(mod, "handle_command", None)
+    if not handler:
+        await reply.reply_error(f"Plugin {target_module} has no handler.")
+        return True
+
+    delegated_msg = copy(msg)
+    delegated_msg.command = target_cmd
+    delegated_msg.args = remaining_args
+    return await handler(delegated_msg, reply)
+
+
 async def handle_command(msg, reply) -> bool:
-    """Cross-platform command handler for finance recording."""
+    """Hub command handler — routes /finance subcommands to appropriate plugins."""
     cmd = msg.command
 
     if cmd not in COMMANDS:
@@ -866,12 +915,16 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text("Finance commands are restricted.")
         return True
 
-    # Subcommands: /finance expense, /finance income, etc.
-    if args and args[0] in SUBCOMMANDS:
-        subcmd = args[0]
-        # Rewrite msg.args to strip the subcommand
+    sub = args[0].lower() if args else None
+
+    # Delegated subcommands (maintenance, audit, invoice)
+    if sub and sub in _DELEGATED_SUBCOMMANDS:
+        return await _delegate(sub, msg, reply, args[1:])
+
+    # Native recording subcommands: /finance expense, /finance income, etc.
+    if sub and sub in SUBCOMMANDS:
         msg.args = args[1:]
-        await _handle_recording_cross_platform(msg, reply, subcmd)
+        await _handle_recording_cross_platform(msg, reply, sub)
         return True
 
     # Default: /finance [cupbots|personal] [income|expenses] — scan mode

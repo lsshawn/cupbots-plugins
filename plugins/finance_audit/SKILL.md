@@ -1,19 +1,8 @@
 # finance_audit
 
-Auditing and reconciliation tools.
+Audit and reconciliation. Access via `/finance reconcile`, `/finance duplicates`, `/money trial`.
 
-## Commands
-- `/reconcile`
-- `/trial`
-- `/duplicates`
-
-## Primitives
-```
-/reconcile [personal] <account> <balance> <currency> — Compare book vs expected
-/trial [personal] [date] — Trial balance
-/duplicates [personal] — Scan for duplicate entries
-```
-
-## Rules
-- Do NOT invent subcommands — only use commands listed above
-- Respect explicit timezones in user input
+## Commands (standalone, prefer unified variants)
+- `/reconcile` → use `/finance reconcile`
+- `/trial` → use `/money trial`
+- `/duplicates` → use `/finance duplicates`

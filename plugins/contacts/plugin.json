@@ -1,18 +1,13 @@
 {
   "name": "contacts",
   "description": "Personal CRM — track contacts, tiers, interactions, and follow-ups",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "CupBots",
   "commands": [
-    "/crm",
-    "/whois",
-    "/remember",
-    "/addcontact",
-    "/contacts"
+    "/crm"
   ],
   "write_commands": [
-    "/remember",
-    "/addcontact"
+    "/crm"
   ],
   "intent": "Look up contact info, remember details about people, manage CRM entries, log interactions",
   "not_intent": "Sending messages to contacts",
@@ -22,7 +17,6 @@
   "marketplace": {
     "icon": "contacts",
     "tagline": "Personal CRM with tiered contacts and follow-up reminders",
-    "category": "productivity",
-    "long_description": "Track your professional network right from WhatsApp. Add contacts, assign importance tiers, log interactions, and get nudged when it's time to follow up. Fuzzy name search and tagging make it easy to find anyone in seconds."
+    "category": "productivity"
   }
 }

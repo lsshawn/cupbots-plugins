@@ -5,7 +5,6 @@ Commands:
   /validate [personal]          — Run bean-check
   /fxsync                       — Fetch missing FX rates
   /void [personal] <search>     — Void an entry (reversing entry)
-  /edit [personal] <search>     — Edit entry with LLM assistance
   /summary [personal]           — Regenerate journal summary
 """
 
@@ -32,7 +31,7 @@ from plugins._finance_helpers import (
 
 log = get_logger("finance.maint")
 
-COMMANDS = ("validate", "fxsync", "void", "edit", "summary")
+COMMANDS = ("validate", "fxsync", "void", "summary")
 
 # FX API (same as generate_rates.py)
 FX_API_TEMPLATE = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{date}/v1/currencies/{currency}.json"
@@ -66,13 +65,6 @@ async def handle_command(msg, reply) -> bool:
 
     if cmd == "void":
         await _void(reply, args)
-        return True
-
-    if cmd == "edit":
-        await reply.reply_text(
-            "The /edit command requires interactive UI. "
-            "Use /void to reverse an entry and re-add a corrected one."
-        )
         return True
 
     if cmd == "summary":

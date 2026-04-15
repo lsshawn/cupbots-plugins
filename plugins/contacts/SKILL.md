@@ -1,28 +1,31 @@
 # contacts
 
-Personal CRM — track contacts, tiers, interactions, and follow-ups
+Personal CRM — all contact management under /crm.
 
 ## Commands
 - `/crm`
-- `/whois`
-- `/remember` (WRITE)
-- `/addcontact` (WRITE)
-- `/contacts`
-
-## Intent
-USE FOR: Look up contact info, remember details about people, manage CRM entries, log interactions
-NOT FOR: Sending messages to contacts
 
 ## Primitives
 ```
-/crm — Show contacts due for a check-in
-/whois <name> — Look up a contact (fuzzy match)
-/remember <name> — <note> — Add a note about someone
-/addcontact <name> — Add a new contact
-/contacts [tag|tier] — Search/filter contacts
+/crm — Overdue check-ins
+/crm whois <name> — Look up a contact (fuzzy match)
+/crm remember <name> -- <note> — Add a note about someone
+/crm list [tier|tag|query] — Search/filter contacts
+/crm touched <name> [note] — Log an interaction
+```
+
+## Examples
+```
+/crm                                Overdue check-ins
+/crm whois John                     Look up John
+/crm remember Sarah -- met at conf, interested in API
+/crm list                           Contact summary by tier
+/crm list A                         All tier-A contacts
+/crm list developer                 Search by tag/keyword
+/crm touched Ahmad called to catch up
 ```
 
 ## Rules
 - Do NOT invent subcommands — only use commands listed above
-- For write commands, use the EXACT flag syntax from Primitives above
-- Respect explicit timezones in user input
+- Use `--` or `—` to separate name from note in /crm remember
+- Contacts are fuzzy-matched by name

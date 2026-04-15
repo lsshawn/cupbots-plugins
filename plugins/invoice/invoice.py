@@ -2,13 +2,23 @@
 Invoice — Create and send Stripe invoices from chat.
 
 Commands:
-  /invoice <client> <line-items> [--account NAME] [--proposal REF]  — Create & send invoice
+  /invoice <client> <line-items> [--account NAME] [--proposal REF] [--draft]  — Create invoice
+  /invoice send <invoice-id>                        — Send a draft invoice
   /invoice list [client]                            — List recent invoices
   /invoice status <invoice-id>                      — Check invoice status
   /invoice accounts                                 — List configured Stripe accounts
 
 Line items format (comma-separated):
   <description> <amount> [currency]
+
+Flags:
+  --draft      Create as draft (finalized but not emailed). Use /invoice send to email later.
+  --account    Stripe account name (default: client's previous account or 'default').
+  --proposal   Attach a proposal reference to the invoice footer.
+
+Config (plugin_settings.invoice):
+  auto_send: true/false   — Default send behavior. When false, invoices are created as drafts
+                            unless you explicitly send them. (default: true)
 
 Stripe accounts (config.yaml):
   invoice.accounts.default.secret_key: sk_live_...
@@ -18,6 +28,8 @@ If --account is omitted, uses the client's previously used account, or 'default'
 
 Examples:
   /invoice acme@example.com API integration 5000, Monthly hosting 200
+  /invoice acme@example.com API integration 5000 --draft
+  /invoice send inv_abc123
   /invoice "Acme Corp" Web development 3000 USD, Design 1500 USD --proposal PROP-2024-003
   /invoice acme@example.com Web dev 5000 --account agency
   /invoice list
@@ -213,6 +225,10 @@ def _parse_invoice_args(args: list[str]) -> dict:
 
     text = " ".join(args)
 
+    # Extract --draft
+    draft = bool(re.search(r"--draft\b", text))
+    text = re.sub(r"--draft\b\s*", "", text)
+
     # Extract --proposal
     proposal_ref = None
     proposal_match = re.search(r"--proposal\s+(\S+)", text)
@@ -254,6 +270,7 @@ def _parse_invoice_args(args: list[str]) -> dict:
         "line_items": line_items,
         "proposal_ref": proposal_ref,
         "account": account_name,
+        "draft": draft,
     }
 
 
@@ -350,9 +367,16 @@ async def _cmd_invoice_create(msg, reply) -> None:
                 currency=item.get("currency", currency),
             )
 
-        # Finalize and send
+        # Finalize
         inv = stripe_mod.Invoice.finalize_invoice(inv.id)
-        stripe_mod.Invoice.send_invoice(inv.id)
+
+        # Send or keep as draft based on --draft flag / config
+        cfg = get_config()
+        auto_send = cfg.get("plugin_settings", {}).get("invoice", {}).get("auto_send", True)
+        should_send = not parsed["draft"] and auto_send
+
+        if should_send:
+            stripe_mod.Invoice.send_invoice(inv.id)
 
         # Store locally
         conn = _db()
@@ -364,8 +388,11 @@ async def _cmd_invoice_create(msg, reply) -> None:
 
         # Format response
         total = inv.amount_due / 100
-        lines = [
-            f"Invoice sent to {client_name} ({client_email})",
+        if should_send:
+            lines = [f"Invoice sent to {client_name} ({client_email})"]
+        else:
+            lines = [f"Invoice created as draft for {client_name} ({client_email})", "Use `/invoice send {inv_id}` to email it.".format(inv_id=inv.id)]
+        lines += [
             f"Amount: {total:,.2f} {currency.upper()}",
             f"Account: {account_name}",
             f"ID: {inv.id}",
@@ -374,7 +401,7 @@ async def _cmd_invoice_create(msg, reply) -> None:
         if parsed["proposal_ref"]:
             lines.append(f"Proposal: {parsed['proposal_ref']}")
         if inv.hosted_invoice_url:
-            lines.append(f"Link: {inv.hosted_invoice_url}")
+            lines.append(f"Preview: {inv.hosted_invoice_url}")
 
         await reply.reply_text("\n".join(lines))
 
@@ -456,6 +483,36 @@ async def _cmd_invoice_status(invoice_id: str, account_name: str) -> str:
         return f"Error: {e}"
 
 
+async def _cmd_invoice_send(invoice_id: str, company_id: str) -> str:
+    """Send a finalized (draft) invoice."""
+    conn = _db()
+    row = conn.execute(
+        "SELECT stripe_account FROM invoices WHERE stripe_invoice_id = ? AND company_id = ?",
+        (invoice_id, company_id),
+    ).fetchone()
+    account_name = row[0] if row else "default"
+
+    if not _init_stripe_account(account_name):
+        return f"Stripe account '{account_name}' not configured."
+
+    try:
+        inv = stripe_mod.Invoice.retrieve(invoice_id)
+        if inv.status not in ("open", "draft"):
+            return f"Invoice {invoice_id} is already {inv.status} — cannot send."
+        stripe_mod.Invoice.send_invoice(invoice_id)
+        # Update local status
+        conn.execute(
+            "UPDATE invoices SET status = 'open' WHERE stripe_invoice_id = ?", (invoice_id,)
+        )
+        conn.commit()
+        total = (inv.amount_due or 0) / 100
+        return f"Invoice sent to {inv.customer_email or inv.customer_name or inv.customer}\nAmount: {total:,.2f} {(inv.currency or 'usd').upper()}\nID: {inv.id}"
+    except stripe_mod.error.InvalidRequestError as e:
+        return f"Failed to send invoice: {e}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
 async def _cmd_accounts() -> str:
     """List configured Stripe accounts."""
     accounts = _get_accounts_config()
@@ -493,6 +550,14 @@ async def handle_command(msg, reply) -> bool:
 
     if args and args[0] == "list":
         result = await _cmd_invoice_list(args[1:], company_id)
+        await reply.reply_text(result)
+        return True
+
+    if args and args[0] == "send":
+        if len(args) < 2:
+            await reply.reply_text("Usage: /invoice send <invoice-id>")
+            return True
+        result = await _cmd_invoice_send(args[1], company_id)
         await reply.reply_text(result)
         return True
 

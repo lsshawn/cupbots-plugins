@@ -1,10 +1,14 @@
 """
-Notes
+Notes — personal knowledge hub for notes, ideas, and bookmarks.
 
-Commands (works in any topic):
-  /note <title> <body>   — Create a zk note
-  /note <title>          — Create a note (body via reply or empty)
-  /notes                 — Show recent notes
+Commands:
+  /note <title> -- <body>        — Create a zettelkasten note
+  /note list                     — Show recent notes
+  /note idea <description>       — Capture an idea
+  /note ideas                    — List this year's ideas
+  /note save <url> [title] [#tag] — Bookmark a link
+  /note bookmarks                — List unread bookmarks
+  /note unsave <url or keyword>  — Remove a bookmark
 """
 
 import re
@@ -119,38 +123,58 @@ async def cmd_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+async def _delegate(target_module: str, target_cmd: str, msg, reply, remaining_args):
+    """Delegate to another plugin by rewriting msg.command/args."""
+    from copy import copy
+    try:
+        import importlib
+        mod = importlib.import_module(f"plugins.{target_module}.{target_module}")
+    except ImportError:
+        await reply.reply_error(f"Plugin {target_module} not available.")
+        return True
+    handler = getattr(mod, "handle_command", None)
+    if not handler:
+        await reply.reply_error(f"Plugin {target_module} has no handler.")
+        return True
+    delegated_msg = copy(msg)
+    delegated_msg.command = target_cmd
+    delegated_msg.args = remaining_args
+    return await handler(delegated_msg, reply)
+
+
+# Map /note subcommands to (target_plugin, rewritten_command)
+_DELEGATED = {
+    "idea": ("ideas", "idea"),
+    "ideas": ("ideas", "ideas"),
+    "save": ("bookmarks", "bookmark"),
+    "bookmarks": ("bookmarks", "bookmarks"),
+    "unsave": ("bookmarks", "unbookmark"),
+}
+
+
 async def handle_command(msg, reply):
-    """Platform-agnostic command handler for WhatsApp and other platforms."""
-    if msg.command == "note":
-        if not msg.args:
-            await reply.reply_text(
-                "Usage:\n/note My Title -- body text here\n/note My Title #tag1 #tag2 -- body"
-            )
-            return True
+    """Hub command handler — routes /note subcommands."""
+    if msg.command not in ("note", "notes"):
+        return False
 
-        raw = " ".join(msg.args)
-        tags = re.findall(r"#(\w+)", raw)
-        raw_clean = re.sub(r"\s*#\w+", "", raw).strip()
+    args = msg.args or []
 
-        if " — " in raw_clean:
-            title, body = raw_clean.split(" — ", 1)
-        elif " -- " in raw_clean:
-            title, body = raw_clean.split(" -- ", 1)
-        else:
-            title = raw_clean
-            body = ""
+    # /notes → /note list (backward compat)
+    if msg.command == "notes":
+        args = ["list"]
 
-        title = title.strip()
-        body = body.strip()
-
-        if msg.reply_to_text and not body:
-            body = msg.reply_to_text
-
-        filepath = _create_note(title, body, tags or None)
-        await reply.reply_text(f"Note created: {filepath.name}")
+    if args and args[0] in ("--help", "-h", "help"):
+        await reply.reply_text(__doc__.strip())
         return True
 
-    elif msg.command == "notes":
+    sub = args[0].lower() if args else None
+
+    # Delegate to other plugins
+    if sub and sub in _DELEGATED:
+        return await _delegate(*_DELEGATED[sub], msg, reply, args[1:])
+
+    # /note list — show recent notes
+    if sub == "list":
         notes = sorted(_get_note_dir().glob("*.md"), reverse=True)
         notes = [n for n in notes if re.match(r"\d{8}-", n.name)][:5]
 
@@ -170,7 +194,32 @@ async def handle_command(msg, reply):
         await reply.reply_text("\n".join(lines))
         return True
 
-    return False
+    # Default: /note <title> [-- body] — create a note
+    if not args:
+        await reply.reply_text(__doc__.strip())
+        return True
+
+    raw = " ".join(args)
+    tags = re.findall(r"#(\w+)", raw)
+    raw_clean = re.sub(r"\s*#\w+", "", raw).strip()
+
+    if " — " in raw_clean:
+        title, body = raw_clean.split(" — ", 1)
+    elif " -- " in raw_clean:
+        title, body = raw_clean.split(" -- ", 1)
+    else:
+        title = raw_clean
+        body = ""
+
+    title = title.strip()
+    body = body.strip()
+
+    if msg.reply_to_text and not body:
+        body = msg.reply_to_text
+
+    filepath = _create_note(title, body, tags or None)
+    await reply.reply_text(f"Note created: {filepath.name}")
+    return True
 
 
 def register(app: Application):

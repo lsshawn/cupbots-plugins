@@ -1,18 +1,35 @@
 {
   "name": "finance_fire",
-  "version": "1.0.0",
-  "description": "Financial Independence tracking.",
+  "version": "2.0.0",
+  "description": "Financial queries, reports & FIRE tracking — all under /money",
   "commands": [
     "/money"
   ],
   "primitives": [
-    "/money \u2014 Master dashboard (FIRE + tiers + allocation + actions)",
-    "/money fire \u2014 Detailed FIRE dashboard",
-    "/money balances \u2014 All balances by custodian",
-    "/money tiers \u2014 Cash tier breakdown",
-    "/money budget \u2014 Expense budget with FIRE multipliers",
-    "/money growth \u2014 Monthly net worth growth chart",
-    "/money scenarios \u2014 FIRE what-if scenarios",
-    "/money networth \u2014 Net worth (both ledgers)"
+    "/money — Master FIRE dashboard",
+    "/money fire — FIRE metrics and projections",
+    "/money balances — All balances by custodian",
+    "/money tiers — Cash tier breakdown",
+    "/money budget — Expense budget × FIRE multipliers",
+    "/money growth — Net worth growth chart",
+    "/money scenarios <change> — What-if scenarios",
+    "/money networth [date] — Net worth (both ledgers)",
+    "/money search [personal] <query> — AI journal search",
+    "/money query [personal] <BQL> — Raw BQL query",
+    "/money bal [personal] [filter] — Account balances",
+    "/money accounts [personal] [filter] — Chart of accounts",
+    "/money pnl [personal] [period] — Profit & Loss",
+    "/money bs [personal] [date] — Balance Sheet",
+    "/money cashflow [personal] [period] — Cash flow",
+    "/money fxgain [personal] [date] — FX gain/loss",
+    "/money receivables — Outstanding receivables",
+    "/money payables [personal] — Outstanding liabilities",
+    "/money annual [personal] [year] — Annual report",
+    "/money tax [year] — Tax summary (MY)",
+    "/money taxrelief [year] — Tax relief (MY)",
+    "/money trial [personal] [date] — Trial balance",
+    "/money wise [personal|cupbots] [period] — Wise queries",
+    "/money invoice list [client] — List invoices",
+    "/money invoice status <id> — Check invoice status"
   ]
 }

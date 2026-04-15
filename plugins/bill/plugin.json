@@ -1,0 +1,29 @@
+{
+  "name": "bill",
+  "description": "Track billable work per client — log, edit, tally, create Stripe invoices",
+  "version": "0.1.0",
+  "author": "CupBots",
+  "commands": [
+    "/bill",
+    "/bill list",
+    "/bill edit",
+    "/bill delete",
+    "/bill clients",
+    "/bill invoice",
+    "/bill history"
+  ],
+  "write_commands": [
+    "/bill"
+  ],
+  "intent": "Log billable work, track hours, edit bill items, tally pending amounts, create Stripe invoices from pending items, list clients",
+  "not_intent": "Send standalone Stripe invoices without bill items (use /invoice), manage tasks (use /task), track expenses",
+  "config": [],
+  "pip_dependencies": [],
+  "free": true,
+  "bundled": true,
+  "marketplace": {
+    "icon": "request_quote",
+    "tagline": "Track billable work from chat — log, edit, tally, invoice",
+    "category": "finance"
+  }
+}

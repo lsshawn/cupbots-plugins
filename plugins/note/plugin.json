@@ -1,24 +1,21 @@
 {
   "name": "note",
-  "description": "Create and list zk-format markdown notes",
-  "version": "1.0.0",
+  "description": "Personal knowledge hub — notes, ideas, and bookmarks",
+  "version": "2.0.0",
   "author": "CupBots",
   "commands": [
-    "/note",
-    "/notes"
+    "/note"
   ],
   "write_commands": [
     "/note"
   ],
-  "intent": "Create or search personal notes, quick memos, zettelkasten entries",
-  "not_intent": "Bookmarks, ideas, or knowledge base documents",
+  "intent": "Create notes, capture ideas, save bookmarks — personal knowledge management",
   "config": [],
   "free": true,
   "bundled": true,
   "marketplace": {
     "icon": "edit_note",
-    "tagline": "Create Zettelkasten-style notes from WhatsApp",
-    "category": "productivity",
-    "long_description": "Capture thoughts as structured markdown notes in Zettelkasten format. Each note gets a timestamped filename and frontmatter, ready for your PKM workflow. Browse recent notes without leaving the chat."
+    "tagline": "Personal knowledge hub — notes, ideas, and bookmarks from chat",
+    "category": "productivity"
   }
 }

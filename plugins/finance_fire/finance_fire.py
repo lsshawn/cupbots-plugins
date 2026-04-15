@@ -1,34 +1,44 @@
 """
-Finance FIRE — Financial Independence tracking.
+Finance — /money command hub for all read/query/report operations.
 
 Commands:
-  /money              — Master dashboard (FIRE + tiers + allocation + actions)
-  /money fire         — Detailed FIRE dashboard
-  /money balances     — All balances by custodian
-  /money tiers        — Cash tier breakdown
-  /money budget       — Expense budget with FIRE multipliers
-  /money growth       — Monthly net worth growth chart
-  /money scenarios    — FIRE what-if scenarios
-  /money networth     — Net worth (both ledgers)
-
-  Legacy commands (still work):
-  /fire, /portfolio, /cashtiers, /firebudget, /firescenario, /networth, /savings
+  /money                    Master FIRE dashboard
+  /money fire               FIRE metrics and projections
+  /money balances           All balances by custodian
+  /money tiers              Cash tier breakdown
+  /money budget             Expense budget with FIRE multipliers
+  /money growth             Net worth growth chart
+  /money scenarios <change> FIRE what-if scenarios
+  /money networth [date]    Net worth (both ledgers)
+  /money search <query>     AI-powered journal search
+  /money query <BQL>        Raw BQL query
+  /money bal [filter]       Account balances
+  /money accounts [filter]  Chart of accounts
+  /money pnl [period]       Profit & Loss
+  /money bs [date]          Balance Sheet
+  /money cashflow [period]  Cash flow summary
+  /money fxgain [date]      FX gain/loss report
+  /money receivables        Outstanding receivables
+  /money payables           Outstanding liabilities
+  /money annual [year]      Annual report
+  /money tax [year]         Tax summary (MY)
+  /money taxrelief [year]   Tax relief (MY)
+  /money trial [date]       Trial balance
+  /money wise [period]      Wise account queries
+  /money invoice list       List invoices
+  /money invoice status <id> Check invoice status
+  /money invoice accounts   List Stripe accounts
 """
 
 import asyncio
-import json
 import subprocess
-from datetime import date, datetime, timedelta
-from decimal import Decimal
+from copy import copy
+from datetime import datetime
 from pathlib import Path
 
 from cupbots.helpers.logger import get_logger
 from cupbots.helpers.access import is_admin
-from plugins._finance_helpers import (
-    OPERATING_CURRENCY,
-    run_bql_combined_raw,
-    send_long_text,
-)
+from plugins._finance_helpers import send_long_text
 
 log = get_logger("finance.fire")
 
@@ -37,9 +47,9 @@ _note_root = Path(_get_cfg().get("allowed_paths", {}).get("notes", "/home/ss/pro
 VENV_PY = str(_note_root / "venv" / "bin" / "python3")
 PORTFOLIO_SYNC = str(_note_root / "finances" / "scripts" / "portfolio_sync.py")
 
-COMMANDS = ("money", "networth", "savings", "portfolio", "fire", "cashtiers", "firebudget", "firescenario")
+COMMANDS = ("money",)
 
-MONEY_SUBCOMMANDS = {
+FIRE_SUBCOMMANDS = {
     "fire": "--fire",
     "balances": "--balances",
     "tiers": "--tiers",
@@ -60,18 +70,65 @@ MONEY_PUBLISH_TITLES = {
     "networth": ("money_networth", "Net Worth"),
 }
 
-MONEY_HELP = """/money -- Financial dashboard
+# Map /money subcommands to (target_plugin_module, rewritten_command)
+# The target plugin's handle_command is called with msg.command rewritten.
+_DELEGATED_SUBCOMMANDS = {
+    # finance_query
+    "search": ("finance_query", "fsearch"),
+    "query": ("finance_query", "fquery"),
+    "bal": ("finance_query", "fbal"),
+    "accounts": ("finance_query", "faccount"),
+    # finance_reports
+    "pnl": ("finance_reports", "pnl"),
+    "bs": ("finance_reports", "bs"),
+    "cashflow": ("finance_reports", "cashflow"),
+    "fxgain": ("finance_reports", "fxgain"),
+    "receivables": ("finance_reports", "receivables"),
+    "payables": ("finance_reports", "payables"),
+    "annual": ("finance_reports", "annualreport"),
+    "tax": ("finance_reports", "taxsummary"),
+    "taxrelief": ("finance_reports", "taxrelief"),
+    # finance_audit
+    "trial": ("finance_audit", "trial"),
+    # finance_wise
+    "wise": ("finance_wise", "wise"),
+    # invoice (read-only subcommands)
+    "invoice": ("invoice", "invoice"),
+}
 
-/money          Master dashboard
-/money fire     FIRE detail
-/money balances All balances by bank
-/money tiers    Cash tier breakdown
-/money budget   Expense budget
-/money growth   Net worth growth chart
-/money scenarios FIRE what-if scenarios
-/money networth Net worth (both ledgers)
+MONEY_HELP = """/money — Financial dashboard & queries
 
-Reports are published to mdpubs.com -- only the link is sent here."""
+FIRE & portfolio:
+  /money                    Master dashboard
+  /money fire               FIRE metrics and projections
+  /money balances           All balances by custodian
+  /money tiers              Cash tier breakdown
+  /money budget             Expense budget × FIRE multipliers
+  /money growth             Net worth growth chart
+  /money scenarios <change> What-if (e.g. +200000 exit)
+  /money networth [date]    Net worth (both ledgers)
+
+Query:
+  /money search <query>     AI journal search (natural language)
+  /money query <BQL>        Raw BQL query
+  /money bal [filter]       Account balances
+  /money accounts [filter]  Chart of accounts
+
+Reports:
+  /money pnl [period]       Profit & Loss
+  /money bs [date]          Balance Sheet
+  /money cashflow [period]  Cash flow summary
+  /money fxgain [date]      FX gain/loss
+  /money receivables        Outstanding receivables
+  /money payables           Outstanding liabilities
+  /money annual [year]      Annual report
+  /money tax [year]         Tax summary (MY)
+  /money taxrelief [year]   Tax relief (MY)
+  /money trial [date]       Trial balance
+  /money wise [period]      Wise account queries
+  /money invoice list       List invoices
+
+Add [personal] after any subcommand for personal ledger."""
 
 
 def _text_to_markdown(text: str, title: str) -> str:
@@ -87,15 +144,6 @@ def _text_to_markdown(text: str, title: str) -> str:
     )
 
 
-def _run_portfolio_sync(*args) -> dict:
-    """Run portfolio_sync.py with given args and return parsed JSON."""
-    cmd = [VENV_PY, PORTFOLIO_SYNC, "--json"] + list(args)
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr[:500])
-    return json.loads(result.stdout)
-
-
 def _run_portfolio_sync_text(*args) -> str:
     """Run portfolio_sync.py and return formatted text output (no --json)."""
     import re
@@ -107,26 +155,32 @@ def _run_portfolio_sync_text(*args) -> str:
     return text.strip()
 
 
-def _sum_eur(inventory) -> Decimal:
-    """Sum EUR amounts from an inventory."""
-    total = Decimal("0")
-    if inventory is None:
-        return total
-    if hasattr(inventory, "__iter__") and not isinstance(inventory, str):
-        for item in inventory:
-            parts = str(item).strip().split()
-            if parts:
-                try:
-                    total += Decimal(parts[0])
-                except Exception:
-                    pass
-    elif isinstance(inventory, Decimal):
-        total = inventory
-    return total
+async def _delegate(sub: str, msg, reply, remaining_args: list) -> bool:
+    """Delegate a /money subcommand to another plugin by rewriting msg.command/args."""
+    target_module, target_cmd = _DELEGATED_SUBCOMMANDS[sub]
+
+    try:
+        import importlib
+        mod = importlib.import_module(f"plugins.{target_module}.{target_module}")
+    except ImportError:
+        await reply.reply_error(f"Plugin {target_module} not available.")
+        return True
+
+    handler = getattr(mod, "handle_command", None)
+    if not handler:
+        await reply.reply_error(f"Plugin {target_module} has no handler.")
+        return True
+
+    # For /money invoice, pass subcommand args (list, status, accounts)
+    # For /money wise, pass remaining as wise subcommands
+    delegated_msg = copy(msg)
+    delegated_msg.command = target_cmd
+    delegated_msg.args = remaining_args
+    return await handler(delegated_msg, reply)
 
 
 async def handle_command(msg, reply) -> bool:
-    """Cross-platform command handler for FIRE tracking."""
+    """Hub command handler — routes /money subcommands to appropriate plugins."""
     cmd = msg.command
     if cmd not in COMMANDS:
         return False
@@ -135,10 +189,7 @@ async def handle_command(msg, reply) -> bool:
 
     # --help support
     if args and args[0] in ("--help", "-h", "help"):
-        if cmd == "money":
-            await reply.reply_text(MONEY_HELP)
-        else:
-            await reply.reply_text(__doc__.strip())
+        await reply.reply_text(MONEY_HELP)
         return True
 
     # Access control
@@ -146,49 +197,26 @@ async def handle_command(msg, reply) -> bool:
         await reply.reply_text("Finance commands are restricted.")
         return True
 
-    if cmd == "money":
-        await _money(reply, args)
-        return True
+    sub = args[0].lower() if args else None
+    remaining = args[1:] if args else []
 
-    if cmd == "networth":
-        await _networth(reply, args)
-        return True
+    # Delegate to other plugins
+    if sub and sub in _DELEGATED_SUBCOMMANDS:
+        return await _delegate(sub, msg, reply, remaining)
 
-    if cmd == "savings":
-        await _savings(reply, args)
-        return True
-
-    if cmd == "portfolio":
-        await _portfolio(reply, args)
-        return True
-
-    if cmd == "fire":
-        await _fire(reply, args)
-        return True
-
-    if cmd == "cashtiers":
-        await _cashtiers(reply, args)
-        return True
-
-    if cmd == "firebudget":
-        await _firebudget(reply, args)
-        return True
-
-    if cmd == "firescenario":
-        await _firescenario(reply, args)
-        return True
-
-    return False
+    # Native FIRE subcommands
+    await _money_fire(reply, args)
+    return True
 
 
-async def _money(reply, args):
-    """Unified finance command — master dashboard + subcommands."""
+async def _money_fire(reply, args):
+    """FIRE dashboard + portfolio subcommands."""
     sub = args[0].lower() if args else None
 
     await reply.send_typing()
     try:
-        if sub and sub in MONEY_SUBCOMMANDS:
-            flag = MONEY_SUBCOMMANDS[sub]
+        if sub and sub in FIRE_SUBCOMMANDS:
+            flag = FIRE_SUBCOMMANDS[sub]
             extra_args = args[1:] if len(args) > 1 else []
             if sub == "networth" and extra_args:
                 text = await asyncio.to_thread(_run_portfolio_sync_text, flag, extra_args[0])
@@ -217,278 +245,4 @@ async def _money(reply, args):
         await send_long_text(reply, text, "money.txt")
     except Exception as e:
         log.error("Money command failed: %s", e)
-        await reply.reply_error(f"Error: {e}")
-
-
-async def _networth(reply, args):
-    as_of = args[0] if args else date.today().isoformat()
-
-    await reply.send_typing()
-    try:
-        result_types, result_rows = run_bql_combined_raw(
-            f"SELECT root(account, 2) AS category, sum(convert(position, '{OPERATING_CURRENCY}')) AS total "
-            f"WHERE (account ~ 'Assets' OR account ~ 'Liabilities') AND date <= {as_of} "
-            f"GROUP BY category ORDER BY category"
-        )
-
-        total_assets = Decimal("0")
-        total_liabilities = Decimal("0")
-        asset_lines = []
-        liability_lines = []
-        for row in result_rows:
-            category = str(row[0])
-            amount = _sum_eur(row[1])
-            if category.startswith("Assets"):
-                asset_lines.append((category, amount))
-                total_assets += amount
-            elif category.startswith("Liabilities"):
-                liability_lines.append((category, amount))
-                total_liabilities += amount
-
-        net_worth = total_assets + total_liabilities
-
-        lines = [
-            f"Net Worth -- as of {as_of}",
-            "=" * 55, "",
-            "ASSETS", "-" * 55,
-        ]
-        for cat, amt in sorted(asset_lines):
-            lines.append(f"  {cat:<40} {amt:>12,.2f}")
-        lines.append(f"  {'TOTAL ASSETS':<40} {total_assets:>12,.2f} {OPERATING_CURRENCY}")
-
-        if liability_lines:
-            lines.extend(["", "LIABILITIES", "-" * 55])
-            for cat, amt in sorted(liability_lines):
-                lines.append(f"  {cat:<40} {amt:>12,.2f}")
-            lines.append(f"  {'TOTAL LIABILITIES':<40} {total_liabilities:>12,.2f} {OPERATING_CURRENCY}")
-
-        lines.extend([
-            "", "=" * 55,
-            f"  {'NET WORTH':<40} {net_worth:>12,.2f} {OPERATING_CURRENCY}",
-        ])
-        await send_long_text(reply, "\n".join(lines), "networth.txt")
-    except Exception as e:
-        log.error("Net worth failed: %s", e)
-        await reply.reply_error(f"Error: {e}")
-
-
-async def _savings(reply, args):
-    from plugins._finance_helpers import parse_date_range, run_bql_raw
-    start, end, _ = parse_date_range(args)
-
-    await reply.send_typing()
-    try:
-        result_types, result_rows = run_bql_raw(
-            "personal",
-            f"SELECT root(account, 1) AS type, sum(convert(position, '{OPERATING_CURRENCY}')) AS total "
-            f"WHERE (account ~ 'Income' OR account ~ 'Expenses') "
-            f"AND date >= {start} AND date < {end} "
-            f"GROUP BY type ORDER BY type",
-        )
-
-        income = Decimal("0")
-        expenses = Decimal("0")
-        for row in result_rows:
-            acct_type = str(row[0])
-            amount = _sum_eur(row[1])
-            if acct_type == "Income":
-                income = -amount
-            elif acct_type == "Expenses":
-                expenses = amount
-
-        savings = income - expenses
-        rate = (savings / income * 100) if income > 0 else Decimal("0")
-
-        lines = [
-            f"Savings Rate (personal) -- {start} to {end}",
-            "=" * 45, "",
-            f"  Income:     {income:>12,.2f} {OPERATING_CURRENCY}",
-            f"  Expenses:   {expenses:>12,.2f} {OPERATING_CURRENCY}",
-            f"  Savings:    {savings:>12,.2f} {OPERATING_CURRENCY}",
-            "",
-            f"  Rate:       {rate:>11.1f}%",
-        ]
-        await send_long_text(reply, "\n".join(lines), "savings.txt")
-    except Exception as e:
-        log.error("Savings rate failed: %s", e)
-        await reply.reply_error(f"Error: {e}")
-
-
-async def _portfolio(reply, args):
-    await reply.send_typing()
-    try:
-        data = await asyncio.to_thread(_run_portfolio_sync)
-        total = data["total_usd"]
-
-        lines = [
-            f"Portfolio -- ${total:,.0f} USD",
-            f"as of {data['as_of']}",
-            "=" * 50, "",
-            "ALLOCATION", "-" * 50,
-        ]
-        for cls, info in sorted(data["by_asset_class"].items()):
-            bar = "#" * int(info["pct"] / 5)
-            lines.append(f"  {cls:<12} ${info['value_usd']:>10,.0f}  {info['pct']:>5.1f}%  {bar}")
-
-        lines.extend(["", "BY CUSTODIAN", "-" * 50])
-        for cust, val in data["by_custodian"].items():
-            pct = val / total * 100 if total > 0 else 0
-            lines.append(f"  {cust:<12} ${val:>10,.0f}  {pct:>5.1f}%")
-
-        lines.extend(["", "TOP POSITIONS", "-" * 50])
-        sorted_pos = sorted(
-            [p for p in data["positions"] if not p.get("ticker", "").startswith(("CASH", "FD_"))],
-            key=lambda p: -p["value_usd"],
-        )
-        for p in sorted_pos[:15]:
-            pct = p["value_usd"] / total * 100 if total > 0 else 0
-            lines.append(
-                f"  {p['ticker']:<12} {p['shares']:>8.2f} x ${p['price']:>8.2f}  "
-                f"${p['value_usd']:>9,.0f}  {pct:>4.1f}%"
-            )
-
-        await send_long_text(reply, "\n".join(lines), "portfolio.txt")
-    except Exception as e:
-        log.error("Portfolio failed: %s", e)
-        await reply.reply_error(f"Error: {e}")
-
-
-async def _fire(reply, args):
-    await reply.send_typing()
-    try:
-        data = await asyncio.to_thread(_run_portfolio_sync, "--fire")
-
-        total = data["total_assets_usd"]
-        portfolio = data["portfolio"]["total_usd"]
-        other = data["other_assets_usd"]
-        fire_target = data["fire_target"]
-        fi_pct = data["fi_progress_pct"]
-
-        lines = [
-            "FIRE Dashboard",
-            "=" * 50, "",
-            f"  Portfolio:           ${portfolio:>12,.0f}",
-            f"  Other Assets:        ${other:>12,.0f}",
-            f"  Total Assets:        ${total:>12,.0f}",
-            "",
-            f"  Annual Income:       ${data['annual_income_usd']:>12,.0f}",
-            f"  Annual Expenses:     ${data['annual_expense_usd']:>12,.0f}",
-            f"  Annual Savings:      ${data['annual_savings_usd']:>12,.0f}",
-            f"  Savings Rate:        {data['savings_rate']:>11.1f}%",
-            "",
-            f"  FIRE Target:         ${fire_target:>12,.0f}",
-            f"  Lean FIRE (80%):     ${data['lean_fire']:>12,.0f}",
-            f"  Fat FIRE (120%):     ${data['fat_fire']:>12,.0f}",
-            f"  FI Progress:         {fi_pct:>11.1f}%",
-            "",
-            f"  Years to Lean FIRE:  {data['years_to_lean']:>11}",
-            f"  Years to FIRE:       {data['years_to_fire']:>11}",
-            f"  Years to Fat FIRE:   {data['years_to_fat']:>11}",
-            "",
-            f"  Real Return:         {data['real_return']*100:>10.1f}%",
-            f"  Withdrawal Rate:     {data['withdrawal_rate']*100:>10.1f}%",
-        ]
-        await send_long_text(reply, "\n".join(lines), "fire.txt")
-    except Exception as e:
-        log.error("FIRE dashboard failed: %s", e)
-        await reply.reply_error(f"Error: {e}")
-
-
-async def _cashtiers(reply, args):
-    await reply.send_typing()
-    try:
-        data = await asyncio.to_thread(_run_portfolio_sync, "--tiers")
-
-        lines = ["Cash Tiers", "=" * 50, ""]
-        for tier_name, tier in data.items():
-            target = tier["target_usd"]
-            actual = tier["actual_usd"]
-            excess = tier["excess_usd"]
-            status = "OK" if excess >= 0 else "LOW"
-
-            lines.append(f"{tier['description']} ({tier_name})")
-            lines.append(f"  Target:  ${target:>10,.0f}")
-            lines.append(f"  Actual:  ${actual:>10,.0f}")
-            lines.append(f"  Excess:  ${excess:>10,.0f}  [{status}]")
-            for p in tier.get("positions", []):
-                lines.append(f"    - {p['name']}: ${p['value_usd']:,.0f}")
-            lines.append("")
-
-        await send_long_text(reply, "\n".join(lines), "cashtiers.txt")
-    except Exception as e:
-        log.error("Cash tiers failed: %s", e)
-        await reply.reply_error(f"Error: {e}")
-
-
-async def _firebudget(reply, args):
-    await reply.send_typing()
-    try:
-        data = await asyncio.to_thread(_run_portfolio_sync, "--fire")
-        breakdown = data["expense_breakdown"]
-
-        lines = [
-            "FIRE Expense Budget",
-            "=" * 55,
-            f"{'Category':<22} {'Annual':>10} {'x':>3} {'FIRE':>12}",
-            "-" * 55,
-        ]
-
-        total_annual = 0
-        total_fire = 0
-        current_cat = ""
-        for item in breakdown:
-            if item["category"] != current_cat:
-                current_cat = item["category"]
-                lines.append(f"\n{current_cat.upper()}")
-            lines.append(
-                f"  {item['name']:<20} ${item['annual_usd']:>8,.0f} {item['fire_multiplier']:>3}x ${item['fire_usd']:>10,.0f}"
-            )
-            total_annual += item["annual_usd"]
-            total_fire += item["fire_usd"]
-
-        lines.extend([
-            "", "-" * 55,
-            f"  {'TOTAL':<20} ${total_annual:>8,.0f}      ${total_fire:>10,.0f}",
-            f"  {'Monthly':<20} ${total_annual/12:>8,.0f}      ${total_fire/12:>10,.0f}",
-        ])
-
-        await send_long_text(reply, "\n".join(lines), "firebudget.txt")
-    except Exception as e:
-        log.error("FIRE budget failed: %s", e)
-        await reply.reply_error(f"Error: {e}")
-
-
-async def _firescenario(reply, args):
-    if not args:
-        await reply.reply_text(
-            "Usage: /firescenario <change>\n"
-            "Examples:\n"
-            "  /firescenario +200000 exit\n"
-            "  /firescenario +20000 income\n"
-            "  /firescenario +2 return\n"
-            "  /firescenario -10000 expense"
-        )
-        return
-
-    await reply.send_typing()
-    try:
-        scenario = " ".join(args)
-        data = await asyncio.to_thread(_run_portfolio_sync, "--scenario", scenario)
-
-        if "error" in data:
-            await reply.reply_error(f"Error: {data['error']}")
-            return
-
-        lines = [
-            "Scenario Analysis",
-            "=" * 40, "",
-            f"  Scenario:      {data['scenario']}",
-            f"  Base years:    {data['base_years']}",
-            f"  New years:     {data['new_years']}",
-            f"  Years saved:   {data['years_saved']}",
-            f"  Reduction:     {data['pct_reduction']}%",
-        ]
-        await reply.reply_text("\n".join(lines))
-    except Exception as e:
-        log.error("Scenario failed: %s", e)
         await reply.reply_error(f"Error: {e}")
